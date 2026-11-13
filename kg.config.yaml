@@ -1,0 +1,17 @@
+# Knowledge-graph configuration
+vault_dir: vault
+# Folder with your PDF books (can be overridden with the KG_BOOKS_DIR env var).
+books_dir: "books"   # folder with your own PDFs (never committed)
+
+# AI tutor (kg serve). Uses your GitHub Copilot subscription via the Copilot SDK.
+tutor:
+  model: claude-sonnet-5.5   # any Copilot model id, e.g. gpt-6.1-sol, claude-opus-5.5
+  questions: 6               # MCQs per assessment
+  port: 8765
+  speech_lang: en-IN         # voice dictation language (BCP-47), e.g. en-US, hi-IN
+
+# Build page: projects + open-source contributions (read-only public GitHub data).
+github:
+  username: BLANK00ANONYMOUS   # personal account to track (your work account is EMU and can't contribute publicly)
+  languages: [Python, C, C++, Rust, Go]
+  min_stars: 50

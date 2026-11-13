@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Today · Knowledge Graph</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script>/*__COMMON_JS__*/</script>
+<style>
+/*__COMMON_CSS__*/
+  header { display:flex; align-items:center; gap:.75rem; padding:.6rem 1.25rem; border-bottom:1px solid var(--border); background:var(--panel); flex-wrap:wrap; }
+  header .grow { flex:1; }
+  main { max-width:1100px; margin:0 auto; padding:1.25rem 1.25rem 4rem; }
+  h1 { font-size:1.5rem; margin:.25rem 0; }
+  h2 { font-size:1rem; margin:0 0 .5rem; display:flex; align-items:center; gap:.4rem; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(300px, 1fr)); gap:1rem; margin-top:1rem; }
+  .hero { display:grid; grid-template-columns: 1fr auto; gap:1rem; align-items:center; border-color:var(--accent); background:linear-gradient(135deg, var(--accent-bg), transparent 60%); }
+  .hero p { margin:.25rem 0; }
+  .seg { display:inline-flex; border:1px solid var(--border); border-radius:8px; overflow:hidden; }
+  .seg label { display:flex; align-items:center; position:relative; min-height:2.25rem; padding:0 .8rem; cursor:pointer; border-right:1px solid var(--border); }
+  .seg label:last-child { border-right:0; }
+  .seg input { position:absolute; opacity:0; }
+  .seg input:checked + span { font-weight:700; }
+  .seg label:has(input:checked) { background:var(--accent-bg); }
+  .seg label:has(input:focus-visible) { outline:2px solid var(--focus); outline-offset:-2px; }
+  .start { font-size:1.05rem; min-height:2.75rem; padding:0 1.25rem; }
+  ul.items { list-style:none; margin:0; padding:0; }
+  ul.items li { display:flex; gap:.5rem; align-items:center; padding:.5rem 0; border-bottom:1px solid var(--border); }
+  ul.items li:last-child { border-bottom:0; }
+  ul.items .t { flex:1; min-width:0; }
+  ul.items .t b { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  ul.items a.btn { display:inline-flex; align-items:center; min-height:2rem; padding:0 .7rem; border:1px solid var(--border); border-radius:6px; text-decoration:none; color:var(--fg); background:var(--panel2); font-size:.875rem; white-space:nowrap; }
+  .empty { color:var(--muted); padding:.5rem 0; }
+  .domain-row { display:grid; grid-template-columns:5.5rem 1fr 4.5rem; gap:.6rem; align-items:center; margin:.45rem 0; font-size:.875rem; }
+  .activity { display:grid; grid-template-columns:repeat(14, 1fr); gap:3px; max-width:22rem; }
+  .activity span { aspect-ratio:1; border-radius:3px; background:var(--panel2); border:1px solid var(--border); }
+  .activity span.on { background:var(--good); border-color:var(--good); }
+  .dot { width:.65rem; height:.65rem; border-radius:50%; display:inline-block; flex:none; }
+  @media (max-width: 640px) { .hero { grid-template-columns:1fr; } }
+</style>
+</head>
+<body>
+<header>
+  <nav class="appnav" aria-label="Main">
+    <a href="/" aria-current="page">🏠 Today</a><a href="/graph">🧠 Graph</a><a href="/build">🛠 Build</a><a href="/arena">🏁 Challenges</a>
+  </nav>
+  <span class="grow"></span>
+  <button id="theme" class="ghost"></button>
+</header>
+<main>
+  <p class="muted" id="date"></p>
+  <h1 id="greeting">Welcome back</h1>
+  <p class="muted" id="activity-text" aria-live="polite"></p>
+
+  <section class="card hero" aria-labelledby="session-title" style="margin-top:1rem">
+    <div>
+      <h2 id="session-title">▶ Today's session</h2>
+      <p id="session-desc" class="reading">Loading your queue…</p>
+      <div class="row" role="radiogroup" aria-label="Session length">
+        <span class="muted">Length:</span>
+        <div class="seg" id="len">
+          <label><input type="radio" name="len" value="5"><span>5 min</span></label>
+          <label><input type="radio" name="len" value="10" checked><span>10 min</span></label>
+          <label><input type="radio" name="len" value="20"><span>20 min</span></label>
+        </div>
+      </div>
+    </div>
+    <button class="primary start" id="start">Start session</button>
+  </section>
+
+  <div class="grid">
+    <section class="card" aria-labelledby="due-h">
+      <h2 id="due-h">🔁 Review due <span class="badge" id="due-n">0</span></h2>
+      <p class="muted">Spaced retrieval keeps what you learned. Mixed reviews feel harder — that's the point.</p>
+      <ul class="items" id="due"></ul>
+    </section>
+    <section class="card" aria-labelledby="ready-h">
+      <h2 id="ready-h">🌱 Ready to learn</h2>
+      <p class="muted">All prerequisites mastered (≥ 3).</p>
+      <ul class="items" id="ready"></ul>
+    </section>
+    <section class="card" aria-labelledby="work-h">
+      <h2 id="work-h">🛠 Continue building</h2>
+      <p class="muted">Practice is where it sticks. Next milestone for each active item.</p>
+      <ul class="items" id="work"></ul>
+    </section>
+    <section class="card" aria-labelledby="arena-h">
+      <h2 id="arena-h">🏁 Challenges</h2>
+      <p class="muted" id="arena-sum">Practical development problems with a judge and a rating.</p>
+      <ul class="items" id="arena"></ul>
+      <div class="row" style="margin-top:.5rem"><a class="btn" href="/arena" style="display:inline-flex;align-items:center;min-height:2rem;padding:0 .7rem;border:1px solid var(--border);border-radius:6px;text-decoration:none;color:var(--fg);background:var(--panel2)">➕ New challenge</a></div>
+    </section>
+    <section class="card" aria-labelledby="prog-h">
+      <h2 id="prog-h">📈 Progress</h2>
+      <div id="domains"></div>
+      <h2 style="margin-top:1rem">🗓 Last 4 weeks</h2>
+      <div class="activity" id="activity" role="img"></div>
+      <p class="muted">A day counts if you reviewed, rated or were assessed. Rest days are fine.</p>
+    </section>
+  </div>
+</main>
+<script>
+const { esc } = KG;
+const COLORS = { math:"#CC79A7", cs:"#56B4E9", systems:"#E69F00", security:"#D55E00", ai:"#009E73", meta:"#999999" };
+const MINUTES_PER_Q = 1.6;
+let T = null;
+
+KG.themeButton(document.getElementById("theme"));
+const now = new Date();
+document.getElementById("date").textContent = now.toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "long" });
+document.getElementById("greeting").textContent =
+  now.getHours() < 12 ? "Good morning" : now.getHours() < 18 ? "Good afternoon" : "Good evening";
+
+const savedLen = localStorage.getItem("kgSessionLen");
+if (savedLen) document.querySelector(`#len input[value="${savedLen}"]`).checked = true;
+document.querySelectorAll("#len input").forEach(i => i.onchange = () => { localStorage.setItem("kgSessionLen", i.value); plan(); });
+
+function sessionPlan() {
+  const minutes = +document.querySelector("#len input:checked").value;
+  const n = Math.max(3, Math.round(minutes / MINUTES_PER_Q));
+  const due = T.due.map(d => d.slug);
+  if (due.length) {
+    const review = due.slice(0, Math.max(1, Math.min(due.length, n, 6)));
+    return { n, slugs: review, label: `${review.length} review${review.length > 1 ? "s" : ""}, mixed` +
+             (T.ready.length ? ` — then learn “${T.ready[0].title}”` : "") };
+  }
+  if (T.ready.length) return { n, learn: T.ready[0].slug, label: `learn “${T.ready[0].title}”, check it, then apply it` };
+  return null;
+}
+function plan() {
+  const p = sessionPlan(), btn = document.getElementById("start"), desc = document.getElementById("session-desc");
+  if (!p) { desc.textContent = "All caught up — nothing due and no new concepts unlocked. Try a project on the Build page."; btn.disabled = true; return; }
+  btn.disabled = false;
+  desc.innerHTML = p.learn
+    ? `<b>${esc(p.label)}</b>. A bite-size lesson with quick checks after each part, then a hands-on exercise.`
+    : `<b>${esc(p.label)}</b> · about ${p.n} questions. Pick an answer, say how sure you are, explain why.`;
+  btn.onclick = () => {
+    const q = new URLSearchParams({ n: p.n });
+    if (p.learn) q.set("learn", p.learn); else q.set("review", p.slugs.join(","));
+    location.href = "/graph?" + q;
+  };
+}
+function render() {
+  const dueEl = document.getElementById("due");
+  document.getElementById("due-n").textContent = T.due.length;
+  dueEl.innerHTML = T.due.length ? T.due.map(d => `<li><span class="dot" style="background:${COLORS[d.domain]}" aria-hidden="true"></span>
+      <span class="t"><b>${esc(d.title)}</b><span class="muted">mastery ${d.mastery}/5 · ${d.overdue ? d.overdue + " day(s) overdue" : "due today"}</span></span>
+      <a class="btn" href="/graph?assess=${encodeURIComponent(d.slug)}&n=4">Review</a></li>`).join("")
+    : `<li class="empty">✓ All caught up — nothing due for review.</li>`;
+  document.getElementById("ready").innerHTML = T.ready.length ? T.ready.map(r => `<li><span class="dot" style="background:${COLORS[r.domain]}" aria-hidden="true"></span>
+      <span class="t"><b>${esc(r.title)}</b><span class="muted">${esc(r.summary)}</span></span>
+      <a class="btn" href="/graph?learn=${encodeURIComponent(r.slug)}">📘 Learn</a>
+      <a class="btn" href="/graph?assess=${encodeURIComponent(r.slug)}" title="Already know it? Test out.">Quiz me</a></li>`).join("")
+    : `<li class="empty">Nothing new unlocked — raise a prerequisite to 3 first.</li>`;
+  document.getElementById("work").innerHTML = T.work.length ? T.work.map(w => `<li>
+      <span class="t"><b>${w.kind === "target" ? "🎯" : "🚧"} ${esc(w.title)}</b>
+        <span class="muted">${w.total ? `${w.done}/${w.total} milestones` : esc(w.state)}${w.next ? " · next: " + esc(w.next) : ""}</span>
+        ${w.total ? `<div class="meter" style="margin-top:.3rem" role="progressbar" aria-valuenow="${w.done}" aria-valuemax="${w.total}" aria-label="Milestones"><div style="width:${100 * w.done / w.total}%"></div></div>` : ""}</span>
+      <a class="btn" href="/build">Open</a></li>`).join("")
+    : `<li class="empty">No active projects or targets. <a href="/build">Find an issue or project idea →</a></li>`;
+  document.getElementById("domains").innerHTML = T.domains.map(d => `<div class="domain-row">
+      <span><span class="dot" style="background:${COLORS[d.domain]}" aria-hidden="true"></span> ${esc(d.domain)}</span>
+      <div class="meter" role="progressbar" aria-label="${esc(d.domain)} mastered" aria-valuenow="${d.mastered}" aria-valuemax="${d.total}"><div style="width:${100 * d.mastered / d.total}%"></div></div>
+      <span class="muted">${d.mastered}/${d.total}</span></div>`).join("");
+  const ch = T.challenges;
+  document.getElementById("arena-sum").textContent = ch.solved
+    ? `Best: ${ch.best_track} ${ch.best_rating} (${ch.best_title}) · ${ch.solved} solved.`
+    : "Practical development problems with a judge and a rating. Solve your first one!";
+  document.getElementById("arena").innerHTML = ch.open.length ? ch.open.map(c => `<li>
+      <span class="t"><b>⬢ ${esc(c.title)}</b><span class="muted">${esc(c.track)} · ★ ${c.difficulty} · ${esc(c.language)}</span></span>
+      <a class="btn" href="/arena#${encodeURIComponent(c.slug)}">Solve</a></li>`).join("")
+    : `<li class="empty">No open challenges.</li>`;
+  const act = document.getElementById("activity");
+  act.innerHTML = T.activity.map(a => `<span class="${a.active ? "on" : ""}" title="${a.date}${a.active ? " · active" : ""}"></span>`).join("");
+  const week = T.activity.slice(-7).filter(a => a.active).length, total = T.activity.filter(a => a.active).length;
+  act.setAttribute("aria-label", `Active on ${total} of the last 28 days`);
+  document.getElementById("activity-text").textContent = total
+    ? `Active ${week} of the last 7 days · ${total} of the last 28.` : "Fresh start — one short session today is plenty.";
+  plan();
+}
+KG.api("/api/today").then(t => { T = t; render(); })
+  .catch(e => KG.toast("⚠️ " + esc(e.message) + " — is <code>kg serve</code> running?", { error: true, ms: 0 }));
+</script>
+</body>
+</html>

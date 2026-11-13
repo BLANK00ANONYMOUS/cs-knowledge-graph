@@ -1,0 +1,271 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Challenges · Knowledge Graph</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="https://unpkg.com/marked@12.0.2/marked.min.js"></script>
+<script src="https://unpkg.com/dompurify@3.1.6/dist/purify.min.js"></script>
+<script>/*__COMMON_JS__*/</script>
+<style>
+/*__COMMON_CSS__*/
+  header { display:flex; align-items:center; gap:.75rem; padding:.6rem 1.25rem; border-bottom:1px solid var(--border); background:var(--panel); position:sticky; top:0; z-index:5; flex-wrap:wrap; }
+  header .grow { flex:1; }
+  .layout { display:grid; grid-template-columns: 340px 1fr; min-height:calc(100vh - 3.3rem); }
+  aside { border-right:1px solid var(--border); background:var(--panel); padding:1rem; overflow:auto; }
+  main { padding:1.25rem 1.5rem 4rem; min-width:0; }
+  h1 { font-size:1.4rem; margin:.2rem 0 .4rem; }
+  h2 { font-size:.8125rem; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); margin:1.25rem 0 .5rem; }
+  h3 { font-size:1rem; margin:1rem 0 .4rem; }
+  label.f { display:block; font-size:.8125rem; color:var(--muted); margin:.5rem 0 .2rem; }
+  aside select, aside input[type=text] { width:100%; }
+  .tiles { display:grid; grid-template-columns:repeat(auto-fit, minmax(150px, 1fr)); gap:.6rem; }
+  .tile { background:var(--panel); border:1px solid var(--border); border-radius:10px; padding:.7rem .8rem; }
+  .tile b { font-size:1.5rem; display:block; }
+  .list { list-style:none; padding:0; margin:0; }
+  .list li button { width:100%; text-align:left; display:flex; flex-direction:column; gap:.15rem; padding:.55rem .6rem; margin:.25rem 0; background:var(--bg); }
+  .list li button[aria-current="true"] { border-color:var(--accent); background:var(--accent-bg); }
+  .list .t { font-weight:600; }
+  .md { max-width:80ch; line-height:1.6; }
+  .md pre { background:var(--panel2); border:1px solid var(--border); border-radius:8px; padding:.6rem; overflow:auto; }
+  .ex { border:1px solid var(--border); border-radius:10px; padding:.6rem .8rem; margin:.5rem 0; background:var(--panel); }
+  .ex pre { margin:.25rem 0; background:var(--bg); border:1px solid var(--border); border-radius:6px; padding:.45rem .6rem; overflow:auto; white-space:pre-wrap; }
+  .ws { display:flex; gap:.5rem; align-items:center; flex-wrap:wrap; }
+  .ws code { font-size:.875rem; }
+  .actions { display:flex; gap:.5rem; flex-wrap:wrap; margin:1rem 0; position:sticky; top:3.4rem; background:var(--bg); padding:.5rem 0; z-index:3; border-bottom:1px solid var(--border); }
+  .verdict { font-size:1.15rem; font-weight:700; padding:.6rem .9rem; border-radius:10px; border:1px solid var(--border); margin:.5rem 0; }
+  .verdict.ok { background:var(--good-bg); border-color:var(--good); }
+  .verdict.bad { background:var(--bad-bg); border-color:var(--bad); }
+  .verdict.ce { background:var(--warn-bg); border-color:var(--warn); }
+  table.res { border-collapse:collapse; width:100%; font-size:.875rem; }
+  table.res td, table.res th { border-bottom:1px solid var(--border); padding:.35rem .45rem; text-align:left; vertical-align:top; }
+  .diff { display:grid; grid-template-columns:1fr 1fr; gap:.5rem; }
+  .diff pre { margin:.2rem 0; white-space:pre-wrap; max-height:14rem; overflow:auto; background:var(--panel2); border:1px solid var(--border); border-radius:6px; padding:.4rem; }
+  .score-row { display:grid; grid-template-columns:8rem 6rem 1fr; gap:.6rem; align-items:start; padding:.3rem 0; border-bottom:1px solid var(--border); }
+  .stars { color:var(--warn); letter-spacing:1px; }
+  .empty { color:var(--muted); }
+  .thinking { display:flex; gap:.6rem; align-items:center; }
+  .spinner { width:.9rem; height:.9rem; border:2px solid var(--border); border-top-color:var(--accent); border-radius:50%; animation:spin .8s linear infinite; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+  @media (max-width: 900px) { .layout { grid-template-columns:1fr; } aside { border-right:0; border-bottom:1px solid var(--border); } .diff { grid-template-columns:1fr; } }
+</style>
+</head>
+<body>
+<header>
+  <nav class="appnav" aria-label="Main">
+    <a href="/">🏠 Today</a><a href="/graph">🧠 Graph</a><a href="/build">🛠 Build</a><a href="/arena" aria-current="page">🏁 Challenges</a>
+  </nav>
+  <span class="grow"></span>
+  <button id="theme" class="ghost"></button>
+</header>
+<div class="layout">
+  <aside aria-label="Challenges">
+    <form id="new-form" class="card">
+      <h2 style="margin-top:0">➕ New challenge</h2>
+      <label class="f" for="track">Track</label>
+      <select id="track"></select>
+      <label class="f" for="lang">Language</label>
+      <select id="lang"></select>
+      <label class="f" for="diff">Difficulty <b id="diff-v"></b> <span class="muted" id="diff-hint"></span></label>
+      <input type="range" id="diff" min="800" max="2400" step="100" style="width:100%">
+      <label class="f" for="concept">Practise a concept (optional)</label>
+      <select id="concept"><option value="">Any</option></select>
+      <label class="f" for="theme-in">Theme / interests (optional)</label>
+      <input type="text" id="theme-in" placeholder="e.g. logs, rate limiting, CSV, auth">
+      <div class="row" style="margin-top:.75rem"><button class="primary" id="gen-btn">Generate challenge</button></div>
+      <p class="muted" style="margin-bottom:0">Copilot writes a problem, a hidden reference solution and tests, and only publishes it once the reference passes every test.</p>
+    </form>
+    <h2>Your challenges</h2>
+    <div class="row"><label for="filter" class="sr-only">Filter</label>
+      <select id="filter"><option value="">All</option><option value="open">Open</option><option value="solved">Solved</option><option value="gave-up">Gave up</option></select></div>
+    <ul class="list" id="list"></ul>
+  </aside>
+  <main id="main">
+    <h1>🏁 Development challenges</h1>
+    <p class="muted md">Like Codeforces, but for building software: CLI tools, parsers, stores, REST APIs, security and systems tasks.
+      Solve in your editor, then <b>Run</b> the public tests or <b>Submit</b> for the hidden tests and your rating.</p>
+    <h2>Ratings</h2>
+    <div class="tiles" id="tiles"></div>
+    <div id="detail" aria-live="polite"></div>
+  </main>
+</div>
+<script>
+const { esc, md } = KG;
+const $ = id => document.getElementById(id);
+const VERDICT = { OK: "✓ OK", WA: "✗ WA", TLE: "⏱ TLE", RE: "💥 RE" };
+let O = null, current = null, busy = false;
+
+KG.themeButton($("theme"));
+
+function stages(label, steps, cancellable) {
+  const ctrl = new AbortController(), t0 = Date.now();
+  const t = KG.toast(`<div class="thinking"><span class="spinner" aria-hidden="true"></span><span class="lbl"></span></div>`, { ms: 0 });
+  if (!cancellable) t.querySelector("button").remove(); else t.querySelector("button").onclick = () => { ctrl.abort(); t.remove(); };
+  const lbl = t.querySelector(".lbl");
+  const tick = () => { const s = Math.round((Date.now() - t0) / 1000); lbl.textContent = `${steps[Math.min(steps.length - 1, Math.floor(s / 12))]} ${s}s`; };
+  tick(); const timer = setInterval(tick, 1000);
+  return { signal: ctrl.signal, stop: () => { clearInterval(timer); t.remove(); } };
+}
+async function run(steps, fn, { cancellable = false } = {}) {
+  if (busy) return;
+  busy = true; document.querySelectorAll("button.primary, .actions button").forEach(b => b.disabled = true);
+  const s = stages("", Array.isArray(steps) ? steps : [steps], cancellable);
+  try { return await fn(s.signal); }
+  catch (e) { if (e.name !== "AbortError") KG.toast("⚠️ " + esc(e.message), { error: true, ms: 9000 }); }
+  finally { s.stop(); busy = false; document.querySelectorAll("button.primary, .actions button").forEach(b => b.disabled = false); }
+}
+
+/* ---------------- overview */
+function renderOverview() {
+  $("tiles").innerHTML = O.tracks.map(t => `<div class="tile"><span class="muted">${esc(t.track)}</span><b>${t.rating}</b>
+    <span class="muted">${esc(t.title)} · ${t.solved}/${t.attempted} solved</span></div>`).join("");
+  if (!$("track").options.length) {
+    $("track").innerHTML = O.tracks.map(t => `<option value="${t.track}">${t.track}</option>`).join("");
+    $("lang").innerHTML = O.languages.map(l => `<option value="${l.id}" ${l.available ? "" : "disabled"}>${l.label}${l.available ? "" : " (no compiler)"}</option>`).join("");
+    $("concept").innerHTML += O.concepts.map(c => `<option value="${esc(c.slug)}">${esc(c.title)}</option>`).join("");
+    $("track").value = localStorage.getItem("kgArenaTrack") || "systems";
+    $("lang").value = localStorage.getItem("kgArenaLang") || "cpp";
+    syncDiff();
+  }
+  const f = $("filter").value;
+  const items = O.challenges.filter(c => !f || c.status === f);
+  $("list").innerHTML = items.length ? items.map(c => `<li><button type="button" data-slug="${esc(c.slug)}" aria-current="${c.slug === current}">
+      <span class="t">${esc(c.title)}</span>
+      <span class="row muted"><span class="badge ${c.status === "solved" ? "good" : c.status === "gave-up" ? "bad" : "info"}">${esc(c.status)}</span>
+        ${esc(c.track)} · ${c.difficulty} · ${esc((O.languages.find(l => l.id === c.language) || {}).label || c.language)}</span></button></li>`).join("")
+    : '<li class="empty">No challenges yet — generate your first one above.</li>';
+  $("list").querySelectorAll("[data-slug]").forEach(b => b.onclick = () => open(b.dataset.slug));
+}
+function syncDiff() {
+  const t = O.tracks.find(x => x.track === $("track").value);
+  if (!$("diff").dataset.touched) $("diff").value = t.suggested;
+  $("diff-v").textContent = $("diff").value;
+  $("diff-hint").textContent = `(suggested ${t.suggested})`;
+}
+$("track").onchange = () => { localStorage.setItem("kgArenaTrack", $("track").value); delete $("diff").dataset.touched; syncDiff(); };
+$("lang").onchange = () => localStorage.setItem("kgArenaLang", $("lang").value);
+$("diff").oninput = () => { $("diff").dataset.touched = "1"; $("diff-v").textContent = $("diff").value; };
+$("filter").onchange = renderOverview;
+async function load() { O = await KG.api("/api/arena"); renderOverview(); }
+
+$("new-form").onsubmit = e => {
+  e.preventDefault();
+  run(["Designing the problem…", "Writing the reference solution…", "Writing public and hidden tests…",
+       "Running the reference against every test…", "Fixing disagreements…", "Publishing…"], async signal => {
+    const d = await KG.api("/api/arena/new", { track: $("track").value, language: $("lang").value, difficulty: +$("diff").value,
+                                               concept: $("concept").value, theme: $("theme-in").value }, signal);
+    await load(); show(d);
+    KG.toast(`🏁 <b>${esc(d.title)}</b> is ready — starter code is in <code>${esc(d.entry)}</code>`);
+  }, { cancellable: true });
+};
+
+/* ---------------- detail */
+async function open(slug) {
+  try { show(await KG.api(`/api/arena/${slug}`)); } catch (e) { KG.toast("⚠️ " + esc(e.message), { error: true }); }
+}
+function example(t, kind, i) {
+  if (kind === "http") return `<div class="ex"><b>Example ${i}</b> — ${esc(t.name)}
+    <pre>${esc(t.method)} ${esc(t.path)}${t.body ? "\n\n" + esc(t.body) : ""}</pre>
+    <div class="muted">Expected status ${t.expect_status}, body (${esc(t.match)}):</div><pre>${esc(t.expect)}</pre></div>`;
+  return `<div class="ex"><b>Example ${i}</b> — ${esc(t.name)}
+    ${t.args.length ? `<div class="muted">Arguments</div><pre>${esc(t.args.join(" "))}</pre>` : ""}
+    ${t.files.map(f => `<div class="muted">File <code>${esc(f.path)}</code></div><pre>${esc(f.content)}</pre>`).join("")}
+    ${t.stdin ? `<div class="muted">Input</div><pre>${esc(t.stdin)}</pre>` : ""}
+    <div class="muted">Output (${esc(t.match)})${t.expect_exit && t.expect_exit !== -1 ? ` · exit code ${t.expect_exit}` : ""}</div><pre>${esc(t.expect) || "(empty)"}</pre></div>`;
+}
+function show(d) {
+  current = d.slug; location.hash = d.slug; renderOverview();
+  const lang = (O.languages.find(l => l.id === d.language) || {}).label || d.language;
+  const runCmd = `.\\kg.cmd judge ${d.slug}`;
+  $("detail").innerHTML = `
+    <h1 style="margin-top:1.25rem">${esc(d.title)}</h1>
+    <div class="row"><span class="badge ${d.status === "solved" ? "good" : d.status === "gave-up" ? "bad" : "info"}">${esc(d.status)}</span>
+      <span class="badge">${esc(d.track)}</span><span class="badge">★ ${d.difficulty}</span><span class="badge">${esc(lang)}</span>
+      <span class="badge">${d.kind === "http" ? "HTTP service" : "command-line"}</span><span class="badge">~${d.est_minutes} min</span>
+      <span class="muted">${d.attempts} submission(s)</span></div>
+    <p class="md">${md(d.story)}</p>
+    <div class="actions">
+      <button id="run-btn">▶ Run public tests</button>
+      <button class="primary" id="submit-btn">🚀 Submit</button>
+      <button id="hint-btn" ${d.hints_left ? "" : "disabled"}>💡 Hint (${d.hints_left} left)</button>
+      <button id="review-btn">🔍 Code review</button>
+      ${d.status === "open" ? '<button id="giveup-btn" class="ghost">🏳 Give up</button>' : ""}
+    </div>
+    <div id="result"></div>
+    <div class="card">
+      <b>Your workspace</b>
+      <div class="ws" style="margin-top:.35rem"><code>${esc(d.entry)}</code><button id="copy-path" class="ghost">Copy folder path</button></div>
+      <p class="muted" style="margin:.4rem 0 0">Open the folder in your editor, edit <code>${esc(d.entry.split("/").pop())}</code>, then Run/Submit here — or from a terminal: <code>${esc(runCmd)}</code> (add <code>--submit</code> to submit).
+      ${d.kind === "http" ? "Your server must take the port as its first command-line argument." : ""}</p>
+    </div>
+    ${d.hints.length ? `<h3>💡 Hints</h3><ol>${d.hints.map(h => `<li>${md(h)}</li>`).join("")}</ol>` : ""}
+    <h3>Requirements</h3><div class="md">${md(d.statement)}</div>
+    <h3>Interface</h3><div class="md">${md(d.interface)}</div>
+    ${d.constraints.length ? `<h3>Constraints</h3><ul>${d.constraints.map(c => `<li>${md(c)}</li>`).join("")}</ul>` : ""}
+    <h3>Examples <span class="muted">(${d.examples.length} public · ${d.hidden_count} hidden tests)</span></h3>
+    ${d.examples.map((t, i) => example(t, d.kind, i + 1)).join("")}
+    ${d.concepts.length ? `<h3>Practises</h3>${d.concepts.map(c => `<a class="chip" href="/graph?focus=${encodeURIComponent(c.slug)}">${esc(c.title)}</a>`).join("")}` : ""}
+    ${d.editorial ? `<h3>📖 Editorial</h3><div class="md">${md(d.editorial)}</div>
+      <details><summary>Reference solution (Python)</summary><div class="md">${md("```python\n" + d.reference + "\n```")}</div></details>` : ""}
+    ${d.submissions.length ? `<h3>History</h3><table class="res"><tr><th>When</th><th>Type</th><th>Verdict</th><th>Passed</th></tr>
+      ${d.submissions.slice().reverse().map(s => `<tr><td class="muted">${esc(s.t.replace("T", " "))}</td><td>${s.event}</td><td>${esc(s.verdict)}</td><td>${s.passed}/${s.total}</td></tr>`).join("")}</table>` : ""}
+    <div id="review"></div>`;
+  $("copy-path").onclick = () => navigator.clipboard.writeText(d.folder_abs).then(() => KG.toast("Copied folder path"));
+  $("run-btn").onclick = () => judge(d, false);
+  $("submit-btn").onclick = () => judge(d, true);
+  $("hint-btn").onclick = () => run("Fetching a hint…", async () => { const r = await KG.api(`/api/arena/${d.slug}/hint`, {}); show(r.detail); KG.toast("💡 " + md(r.hint), { ms: 15000 }); });
+  $("review-btn").onclick = () => run(["Reading your code…", "Reviewing like a senior engineer…"], async signal => {
+    renderReview(await KG.api(`/api/arena/${d.slug}/review`, {}, signal));
+  }, { cancellable: true });
+  const gu = $("giveup-btn");
+  if (gu) gu.onclick = () => {
+    if (!confirm("Give up? Your rating will drop as if you'd lost, and the editorial and reference solution will be shown.")) return;
+    run("Revealing the editorial…", async () => {
+      const r = await KG.api(`/api/arena/${d.slug}/giveup`, {});
+      await load(); show(r.detail);
+      if (r.rating_change) KG.toast(`${d.track} rating ${r.rating_change.from} → ${r.rating_change.to}. Read the editorial, then try again from scratch later.`);
+    });
+  };
+}
+function judge(d, submit) {
+  run(submit ? ["Compiling…", "Running public and hidden tests…"] : ["Compiling…", "Running public tests…"], async () => {
+    const r = await KG.api(`/api/arena/${d.slug}/${submit ? "submit" : "run"}`, {});
+    if (submit) { await load(); show(r.detail); }
+    renderResult(r);
+    if (r.rating_change) KG.toast(`🎉 <b>Accepted!</b> ${esc(d.track)} rating ${r.rating_change.from} → <b>${r.rating_change.to}</b>`, { ms: 10000 });
+    if (submit && r.verdict === "Accepted") $("review-btn").click();
+  });
+}
+function renderResult(r) {
+  const cls = r.verdict === "Accepted" ? "ok" : r.verdict === "Compilation Error" ? "ce" : "bad";
+  $("result").innerHTML = `
+    <div class="verdict ${cls}" role="status">${r.verdict === "Accepted" ? "✅" : r.verdict === "Compilation Error" ? "🛠" : "❌"} ${esc(r.verdict)}
+      <span class="muted" style="font-weight:400">· ${r.submit ? "submission (all tests)" : "public tests only"} · ${r.passed}/${r.total} passed</span></div>
+    ${r.compile_error ? `<pre class="card" style="white-space:pre-wrap;overflow:auto;max-height:18rem">${esc(r.compile_error)}</pre>` : ""}
+    ${r.results.length ? `<table class="res"><tr><th>#</th><th>Test</th><th>Verdict</th><th>Time</th></tr>
+      ${r.results.map(x => `<tr><td>${x.n}</td><td>${esc(x.name)}${x.hidden ? ' <span class="muted">(hidden)</span>' : ""}
+        ${x.verdict !== "OK" && !x.hidden ? `<details open><summary>Show difference</summary>
+          ${x.expect_status ? `<div class="muted">status: expected ${x.expect_status}, got ${x.status ?? "—"}</div>` : ""}
+          ${x.expect_exit !== null && x.expect_exit !== undefined && x.exit !== x.expect_exit && x.expect_exit !== -1 ? `<div class="muted">exit code: expected ${x.expect_exit}, got ${x.exit ?? "—"}</div>` : ""}
+          <div class="diff"><div><div class="muted">Expected (${esc(x.match)})</div><pre>${esc(x.expect) || "(empty)"}</pre></div>
+            <div><div class="muted">Your output</div><pre>${esc(x.actual) || "(empty)"}</pre></div></div>
+          ${x.stderr || x.error ? `<div class="muted">stderr / error</div><pre>${esc(x.stderr || x.error)}</pre>` : ""}</details>` : ""}
+        ${x.hidden && x.error ? `<div class="muted">${esc(x.error)}</div>` : ""}</td>
+        <td><span class="badge ${x.verdict === "OK" ? "good" : "bad"}">${VERDICT[x.verdict] || esc(x.verdict)}</span></td><td class="muted">${x.ms} ms</td></tr>`).join("")}</table>` : ""}`;
+  $("result").scrollIntoView({ block: "nearest", behavior: KG.reducedMotion() ? "auto" : "smooth" });
+}
+function renderReview(r) {
+  $("review").innerHTML = `<div class="card" style="margin-top:1rem">
+    <h3 style="margin-top:0">🔍 Code review</h3><div class="md">${md(r.summary)}</div>
+    ${r.scores.map(s => `<div class="score-row"><b>${esc(s.area)}</b><span class="stars" aria-label="${s.score} of 5">${"★".repeat(s.score)}${"☆".repeat(5 - s.score)}</span><span>${md(s.comment)}</span></div>`).join("")}
+    ${r.strengths.length ? `<h3>Strengths</h3><ul>${r.strengths.map(x => `<li>${md(x)}</li>`).join("")}</ul>` : ""}
+    <h3>Improve next</h3><ol>${r.improvements.map(x => `<li>${md(x)}</li>`).join("")}</ol>
+    <p><b>Next step:</b> ${md(r.next_step)}</p></div>`;
+  $("review").scrollIntoView({ block: "start", behavior: KG.reducedMotion() ? "auto" : "smooth" });
+}
+
+load().then(() => { const h = location.hash.slice(1); if (h && O.challenges.some(c => c.slug === h)) open(h); })
+  .catch(e => KG.toast("⚠️ " + esc(e.message) + " — is <code>kg serve</code> running?", { error: true, ms: 0 }));
+</script>
+</body>
+</html>

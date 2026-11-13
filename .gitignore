@@ -1,0 +1,18 @@
+.venv/
+__pycache__/
+.kg/
+build/
+/books/
+*.pdf
+vault/.obsidian/workspace*.json
+vault/.obsidian/cache
+challenges/**/*.exe
+challenges/**/*.o
+
+# your own books: indexed locally, never published
+vault/books/*
+!vault/books/.gitkeep
+challenges/
+plans/
+journal/*.md
+!journal/README.md

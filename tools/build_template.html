@@ -1,0 +1,266 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Build · Knowledge Graph</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="https://unpkg.com/marked@12.0.2/marked.min.js"></script>
+<script src="https://unpkg.com/dompurify@3.1.6/dist/purify.min.js"></script>
+<script>/*__COMMON_JS__*/</script>
+<style>
+/*__COMMON_CSS__*/
+  header { display:flex; align-items:center; gap:.75rem; padding:.6rem 1.25rem; border-bottom:1px solid var(--border); background:var(--panel); position:sticky; top:0; z-index:2; flex-wrap:wrap; }
+  header h1 { font-size:1rem; margin:0 .5rem; }
+  header .grow { flex:1; }
+  .tabbtn { min-height:2rem; }
+  .tabbtn[aria-selected=true] { background:var(--accent-bg); border-color:var(--accent); font-weight:600; }
+  main { max-width:1200px; margin:0 auto; padding:1.25rem 1.25rem 4rem; }
+  h2 { font-size:.8125rem; text-transform:uppercase; color:var(--muted); margin:1.5rem 0 .6rem; letter-spacing:.04em; }
+  h3 { margin:0 0 .25rem; font-size:1rem; }
+  .tiles { display:grid; grid-template-columns:repeat(auto-fill, minmax(160px, 1fr)); gap:.75rem; }
+  .tile { background:var(--panel); border:1px solid var(--border); border-radius:10px; padding:.8rem; }
+  .tile b { font-size:1.6rem; display:block; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(340px, 1fr)); gap:.75rem; }
+  .card { display:flex; flex-direction:column; gap:.4rem; }
+  .pill { display:inline-flex; align-items:center; min-height:1.5rem; padding:0 .55rem; border:1px solid var(--border); border-radius:999px; font-size:.8125rem; margin:.15rem .2rem 0 0; background:var(--panel2); }
+  .b-active, .b-merged { background:var(--good-bg); border-color:var(--good); }
+  .b-idea, .b-planned, .b-open { background:var(--accent-bg); border-color:var(--accent); }
+  .b-done { background:var(--panel2); }
+  .b-closed, .b-abandoned { background:var(--bad-bg); border-color:var(--bad); }
+  .ms label { display:flex; gap:.45rem; align-items:flex-start; min-height:1.75rem; cursor:pointer; }
+  .ms input { margin-top:.3rem; }
+  .done-text { text-decoration:line-through; color:var(--muted); }
+  ul, ol { margin:.25rem 0; padding-left:1.25rem; }
+  table { width:100%; border-collapse:collapse; }
+  td, th { text-align:left; padding:.45rem; border-bottom:1px solid var(--border); vertical-align:top; }
+  .fit { color:var(--warn); letter-spacing:1px; }
+  details summary { cursor:pointer; color:var(--accent); font-size:.875rem; min-height:1.75rem; }
+  .empty { color:var(--muted); }
+</style>
+</head>
+<body>
+<header>
+  <nav class="appnav" aria-label="Main"><a href="/">🏠 Today</a><a href="/graph">🧠 Graph</a><a href="/build" aria-current="page">🛠 Build</a><a href="/arena">🏁 Challenges</a></nav>
+  <h1>Projects &amp; Open Source</h1>
+  <div class="row" role="tablist" aria-label="Build sections">
+    <button class="tabbtn" role="tab" aria-selected="true" aria-controls="overview" data-tab="overview">📊 My work</button>
+    <button class="tabbtn" role="tab" aria-selected="false" aria-controls="issues" data-tab="issues">🔎 Find issues</button>
+    <button class="tabbtn" role="tab" aria-selected="false" aria-controls="ideas" data-tab="ideas">💡 Project ideas</button>
+  </div>
+  <span class="grow"></span>
+  <button id="theme" class="ghost"></button>
+</header>
+<main>
+  <!-- overview -->
+  <section id="overview">
+    <div class="row">
+      <div id="profile" class="muted">Loading…</div>
+      <button class="primary" id="sync-btn">⟳ Sync from GitHub</button>
+    </div>
+    <h2>At a glance</h2>
+    <div class="tiles" id="tiles"></div>
+    <h2>🎯 Open-source targets</h2>
+    <div class="grid" id="targets"></div>
+    <h2>🚧 Projects</h2>
+    <div class="row" style="margin-bottom:8px">
+      <select id="proj-filter"><option value="">All statuses</option><option>active</option><option>idea</option><option>done</option><option>abandoned</option></select>
+      <span class="muted">Repos sync as projects; tutor ideas appear here once added.</span>
+    </div>
+    <div class="grid" id="projects"></div>
+    <h2>🔀 Pull requests &amp; issues</h2>
+    <div id="contribs"></div>
+  </section>
+
+  <!-- issue finder -->
+  <section id="issues" class="hidden">
+    <p class="muted">Searches public GitHub for unassigned, recently active issues in healthy repos, then Copilot ranks them
+      against your mastery, gaps and interests. Your work account can't contribute to public repos — claim and
+      submit from your personal account <b id="who"></b>.</p>
+    <div class="row">
+      <input type="text" id="langs" placeholder="Languages, comma-separated" size="28">
+      <label class="row"><input type="checkbox" class="lbl" value="good first issue" checked> good first issue</label>
+      <label class="row"><input type="checkbox" class="lbl" value="help wanted"> help wanted</label>
+      <label class="row"><input type="checkbox" class="lbl" value="documentation"> documentation</label>
+    </div>
+    <div class="row" style="margin-top:8px">
+      <input type="text" id="kw" placeholder="Interests / keywords (e.g. compiler, fuzzing, llm, kernel)" size="48">
+      <label class="row">min ★ <input type="number" id="stars" value="50" min="0" style="width:90px"></label>
+      <button class="primary" id="find-btn">Find issues</button>
+    </div>
+    <div class="grid" id="issue-results" style="margin-top:16px"></div>
+  </section>
+
+  <!-- project ideas -->
+  <section id="ideas" class="hidden">
+    <p class="muted">Copilot proposes projects that exercise concepts you're ready for or weak in, avoiding ones you already have.</p>
+    <div class="row">
+      <select id="focus"><option value="any">Any domain</option><option>ai</option><option>security</option><option>systems</option><option>cs</option><option>math</option></select>
+      <label class="row">~hours <input type="number" id="hours" value="15" min="2" max="200" style="width:80px"></label>
+      <input type="text" id="interests" placeholder="Interests (e.g. Rust, embedded, compilers, CTFs)" size="44">
+      <button class="primary" id="ideas-btn">Suggest projects</button>
+    </div>
+    <div class="grid" id="idea-results" style="margin-top:16px"></div>
+  </section>
+</main>
+<div class="toast hidden" id="status" role="status" aria-live="polite"></div>
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;" }[c]));
+const md = s => (window.marked && window.DOMPurify) ? DOMPurify.sanitize(marked.parse(String(s ?? ""))) : esc(s);
+const safeUrl = u => /^https:\/\/github\.com\//.test(u || "") ? u : "#";
+let titles = {}, data = null, busy = false;
+
+async function api(path, body) {
+  const r = await fetch(path, { method: body ? "POST" : "GET", headers: { "Content-Type": "application/json", "X-KG": "1" },
+                                body: body ? JSON.stringify(body) : undefined });
+  const j = await r.json().catch(() => ({ error: `HTTP ${r.status}` }));
+  if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+  return j;
+}
+function status(text, err) {
+  const s = $("status"); s.textContent = text; s.className = "toast" + (err ? " err" : "");
+  if (!text) s.classList.add("hidden");
+  else if (err) setTimeout(() => s.classList.add("hidden"), 8000);
+}
+async function run(label, fn) {
+  if (busy) return;
+  busy = true; document.querySelectorAll("button.primary").forEach(b => b.disabled = true);
+  const t0 = Date.now(); status(label);
+  const timer = setInterval(() => status(`${label} ${Math.round((Date.now() - t0) / 1000)}s`), 1000);
+  try { await fn(); status(""); }
+  catch (e) { status("⚠️ " + e.message, true); }
+  finally { clearInterval(timer); busy = false; document.querySelectorAll("button.primary").forEach(b => b.disabled = false); }
+}
+const concepts = slugs => slugs.length ? slugs.map(s => `<span class="pill">${esc(titles[s] || s)}</span>`).join("") : '<span class="muted">—</span>';
+const fit = n => "★".repeat(n) + "☆".repeat(5 - n);
+
+document.querySelectorAll(".tabbtn").forEach(b => b.onclick = () => {
+  document.querySelectorAll(".tabbtn").forEach(x => x.setAttribute("aria-selected", x === b));
+  ["overview", "issues", "ideas"].forEach(id => $(id).classList.toggle("hidden", id !== b.dataset.tab));
+});
+
+/* ---------------- overview */
+function milestones(item) {
+  if (!item.milestones || !item.milestones.length) return "";
+  const done = item.milestones.filter(m => m.done).length;
+  return `<div class="row muted">${done}/${item.milestones.length} milestones</div>
+    <div class="meter"><div style="width:${100 * done / item.milestones.length}%"></div></div>
+    <details ${item.status === "active" ? "open" : ""}><summary>Milestones</summary><div class="ms">
+      ${item.milestones.map((m, i) => `<label><input type="checkbox" data-slug="${esc(item.slug)}" data-i="${i}" ${m.done ? "checked" : ""}>
+        <span class="${m.done ? "done-text" : ""}">${esc(m.text)}</span></label>`).join("")}</div></details>`;
+}
+function statusSelect(item, options, value) {
+  return `<select data-status="${esc(item.slug)}">${options.map(o => `<option ${o === value ? "selected" : ""}>${o}</option>`).join("")}</select>`;
+}
+function render() {
+  const d = data, s = d.stats;
+  $("who").textContent = "@" + (d.username || "?");
+  $("profile").innerHTML = d.username
+    ? `Personal account <a href="https://github.com/${esc(d.username)}" target="_blank" rel="noopener">@${esc(d.username)}</a> ·
+       last sync ${esc(d.last_sync || "never")}${d.authenticated ? "" : " · ⚠ unauthenticated (low rate limit)"}`
+    : "Set <code>github.username</code> in kg.config.yaml";
+  if (!$("langs").value) $("langs").value = d.languages.join(", ");
+  $("stars").value = $("stars").value || d.min_stars;
+  const langs = Object.entries(s.languages).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${esc(k)} ${v}`).join(" · ") || "—";
+  $("tiles").innerHTML = [
+    ["Projects", s.projects, `${s.active} active`], ["OSS pull requests", s.prs, `${s.merged} merged`],
+    ["OSS issues", s.issues, "opened elsewhere"], ["Targets", s.targets, "issues you're tracking"],
+    ["Concepts practiced", s.concepts_practiced, "linked in the graph"], ["Languages", Object.keys(s.languages).length, langs],
+  ].map(([k, v, sub]) => `<div class="tile"><span class="muted">${k}</span><b>${v}</b><span class="muted">${sub}</span></div>`).join("");
+
+  const targets = d.contributions.filter(c => c.kind === "target");
+  $("targets").innerHTML = targets.length ? targets.map(c => `<div class="card">
+      <div class="row"><span class="badge b-${esc(c.state)}">${esc(c.state)}</span>${c.fit ? `<span class="fit">${fit(c.fit)}</span>` : ""}
+        ${statusSelect(c, ["planned", "active", "done", "abandoned"], c.state)}</div>
+      <h3><a href="${safeUrl(c.url)}" target="_blank" rel="noopener">${esc(c.title)}</a></h3>
+      <div class="muted">${esc(c.repo)} · tracked ${esc(c.created)}</div>
+      <div>${esc(c.summary)}</div><div>${concepts(c.practices)}</div>${milestones({ ...c, status: c.state === "active" ? "active" : "" })}
+    </div>`).join("") : '<p class="muted">None yet — use 🔎 Find issues and click “Track”.</p>';
+
+  const f = $("proj-filter").value;
+  const projects = d.projects.filter(p => !f || p.status === f);
+  $("projects").innerHTML = projects.length ? projects.map(p => `<div class="card">
+      <div class="row"><span class="badge b-${esc(p.status)}">${esc(p.status)}</span><span class="muted">${esc(p.domain)}${p.language ? " · " + esc(p.language) : ""}${p.last_push ? " · pushed " + esc(p.last_push) : ""}${p.est_hours ? " · ~" + p.est_hours + "h" : ""}</span>
+        ${statusSelect(p, ["idea", "active", "done", "abandoned"], p.status)}</div>
+      <h3>${p.url ? `<a href="${safeUrl(p.url)}" target="_blank" rel="noopener">${esc(p.title)}</a>` : esc(p.title)}</h3>
+      <div>${esc(p.summary)}</div><div>${concepts(p.practices)}</div>${milestones(p)}
+      ${p.source !== "github" && !p.url ? `<div class="row"><input type="text" placeholder="https://github.com/${esc(d.username)}/repo" data-repo-input="${esc(p.slug)}" size="30"><button data-repo="${esc(p.slug)}">Link repo</button></div>` : ""}
+    </div>`).join("") : '<p class="muted">No projects yet — press Sync, or add ideas from 💡 Project ideas.</p>';
+
+  const contribs = d.contributions.filter(c => c.kind !== "target");
+  $("contribs").innerHTML = contribs.length ? `<table><tr><th></th><th>Title</th><th>Repo</th><th>State</th><th>Concepts</th><th>Date</th></tr>
+    ${contribs.map(c => `<tr><td>${c.kind === "pr" ? "🔀" : "🐞"}</td><td><a href="${safeUrl(c.url)}" target="_blank" rel="noopener">${esc(c.title)}</a>
+      <div class="muted">${esc(c.summary)}</div></td><td>${esc(c.repo)}${c.own_repo ? ' <span class="muted">(own)</span>' : ""}</td>
+      <td><span class="badge b-${esc(c.state)}">${esc(c.state)}</span></td><td>${concepts(c.practices)}</td><td class="muted">${esc(c.created)}</td></tr>`).join("")}</table>`
+    : '<p class="muted">No pull requests or issues found for this account yet. Your first OSS contribution will show up here after a sync.</p>';
+}
+async function load() {
+  const [g, d] = await Promise.all([api("/api/graph"), api("/api/build")]);
+  titles = Object.fromEntries(g.nodes.map(n => [n.id, n.title]));
+  data = d; render();
+}
+$("proj-filter").onchange = render;
+$("sync-btn").onclick = () => run("Syncing GitHub and tagging new work with Copilot…", async () => {
+  const r = await api("/api/build/sync", {});
+  await load();
+  status(`Synced: ${r.new} new, ${r.updated} updated`);
+  setTimeout(() => status(""), 5000);
+});
+document.addEventListener("change", e => {
+  const t = e.target;
+  if (t.dataset.status) run("Saving…", async () => { await api(`/api/build/projects/${t.dataset.status}`, { status: t.value }); await load(); });
+  if (t.dataset.slug && t.dataset.i !== undefined)
+    run("Saving…", async () => { await api(`/api/build/projects/${t.dataset.slug}`, { milestone: +t.dataset.i, done: t.checked }); await load(); });
+});
+document.addEventListener("click", e => {
+  const t = e.target;
+  if (t.dataset.repo) {
+    const url = document.querySelector(`[data-repo-input="${t.dataset.repo}"]`).value.trim();
+    run("Linking…", async () => { await api(`/api/build/projects/${t.dataset.repo}`, { repo: url, status: "active" }); await load(); });
+  }
+  if (t.dataset.track) run("Tracking…", async () => {
+    const r = await api("/api/build/track", { url: t.dataset.track });
+    t.textContent = r.existing ? "Already tracked" : "✓ Tracked"; t.disabled = true; await load();
+  });
+  if (t.dataset.idea !== undefined) run("Adding project…", async () => {
+    await api("/api/build/projects", { title: t.dataset.idea });
+    t.textContent = "✓ Added"; t.disabled = true; await load();
+  });
+});
+
+/* ---------------- issue finder */
+$("find-btn").onclick = () => run("Searching GitHub and ranking issues for you…", async () => {
+  const r = await api("/api/build/issues", {
+    languages: $("langs").value.split(",").map(s => s.trim()).filter(Boolean),
+    labels: [...document.querySelectorAll(".lbl:checked")].map(c => c.value),
+    keywords: $("kw").value, min_stars: +$("stars").value || 0 });
+  $("issue-results").innerHTML = r.issues.length ? r.issues.map(i => `<div class="card">
+      <div class="row"><span class="fit" title="fit for you">${fit(i.fit)}</span><span class="badge">${esc(i.difficulty)}</span>
+        <span class="muted">${esc(i.language || "")} · ★${i.stars} · updated ${esc(i.updated)} · ${i.comments} comments</span></div>
+      <h3><a href="${safeUrl(i.url)}" target="_blank" rel="noopener">${esc(i.title)}</a></h3>
+      <div class="muted"><a href="https://github.com/${esc(i.repo)}" target="_blank" rel="noopener">${esc(i.repo)}</a> — ${esc(i.repo_description || "")}</div>
+      <div><b>Why you:</b> ${esc(i.why)}</div><div><b>You'll learn:</b> ${esc(i.you_will_learn)}</div>
+      <div>${concepts(i.concepts)}</div>
+      <details><summary>First steps</summary><ol>${i.first_steps.map(s => `<li>${md(s)}</li>`).join("")}</ol></details>
+      <div><button class="primary" data-track="${esc(i.url)}">🎯 Track this issue</button></div>
+    </div>`).join("") : '<p class="muted">No matching issues — try more languages, fewer stars, or other labels.</p>';
+});
+
+/* ---------------- project ideas */
+$("ideas-btn").onclick = () => run("Designing project ideas for you…", async () => {
+  const r = await api("/api/build/ideas", { focus: $("focus").value, hours: +$("hours").value, interests: $("interests").value });
+  $("idea-results").innerHTML = r.ideas.map(i => `<div class="card">
+      <div class="row"><span class="badge">${esc(i.difficulty)}</span><span class="muted">${esc(i.domain)} · ~${i.est_hours}h · ${i.stack.map(esc).join(", ")}</span></div>
+      <h3>${esc(i.title)}</h3><div>${md(i.pitch)}</div><div>${concepts(i.concepts)}</div>
+      <details open><summary>Milestones</summary><ol>${i.milestones.map(m => `<li>${md(m)}</li>`).join("")}</ol></details>
+      ${i.stretch.length ? `<details><summary>Stretch goals</summary><ul>${i.stretch.map(m => `<li>${md(m)}</li>`).join("")}</ul></details>` : ""}
+      <div class="muted">🌍 ${esc(i.open_source_angle)}</div>
+      <div><button class="primary" data-idea="${esc(i.title)}">➕ Add to my projects</button></div>
+    </div>`).join("");
+});
+
+KG.themeButton($("theme"));
+load().catch(e => status("⚠️ " + e.message + " — is `kg serve` running?", true));
+</script>
+</body>
+</html>

@@ -1,0 +1,973 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Graph · Knowledge Graph</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="https://unpkg.com/vis-network@9.1.9/standalone/umd/vis-network.min.js"></script>
+<script src="https://unpkg.com/marked@12.0.2/marked.min.js"></script>
+<script src="https://unpkg.com/dompurify@3.1.6/dist/purify.min.js"></script>
+<script>/*__COMMON_JS__*/</script>
+<style>
+/*__COMMON_CSS__*/
+  body { --lw:270px; --rw:460px; display:grid; grid-template-columns: var(--lw) minmax(0, 1fr) var(--rw); height:100vh; overflow:hidden; }
+  @media (min-width: 1101px) { html { overflow:hidden; height:100%; } body { position:fixed; inset:0; height:auto; } }
+  aside { background:var(--panel); padding:.9rem; overflow:auto; }
+  #left { border-right:1px solid var(--border); display:flex; flex-direction:column; gap:.2rem; }
+  #right { border-left:1px solid var(--border); padding:0; display:flex; flex-direction:column; overflow:hidden; }
+  h1 { font-size:1.05rem; margin:.5rem 0; }
+  h2 { font-size:.75rem; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); margin:.9rem 0 .35rem; }
+  #left label { display:flex; align-items:center; gap:.45rem; min-height:1.75rem; cursor:pointer; }
+  #left input[type=search], #left select { width:100%; }
+  .dot { width:.7rem; height:.7rem; border-radius:50%; display:inline-block; flex:none; }
+  #graph { height:100vh; min-width:0; }
+  #legend summary { cursor:pointer; color:var(--accent); font-size:.8125rem; margin-top:.8rem; }
+  #legend dl { display:grid; grid-template-columns:1.6rem 1fr; gap:.3rem .5rem; font-size:.8125rem; margin:.5rem 0; }
+  #legend dt { text-align:center; }
+  /* tabs */
+  .tabs { display:flex; border-bottom:1px solid var(--border); flex:none; }
+  .tabs [role=tab] { flex:1; margin:0; border:0; border-radius:0; min-height:2.6rem; background:transparent; color:var(--muted); border-bottom:2px solid transparent; }
+  .tabs [role=tab][aria-selected=true] { color:var(--fg); border-bottom-color:var(--accent); font-weight:600; }
+  .tabpanel { flex:1; overflow:auto; padding:1rem; min-height:0; }
+  /* details */
+  #details h1 { font-size:1.25rem; margin:.1rem 0 .35rem; }
+  #details .actions { display:flex; gap:.4rem; flex-wrap:wrap; margin:.75rem 0; }
+  .status-line { display:flex; gap:.35rem; flex-wrap:wrap; margin:.35rem 0; }
+  .pip { letter-spacing:2px; color:var(--good); }
+  .next-level { border-left:3px solid var(--accent); padding:.3rem .7rem; background:var(--accent-bg); border-radius:0 6px 6px 0; font-size:.875rem; }
+  /* tutor */
+  #tutor { display:flex; flex-direction:column; padding:0; }
+  #tutor-head { padding:.75rem 1rem; border-bottom:1px solid var(--border); flex:none; }
+  #tutor-head .row > input { flex:1; min-width:8rem; }
+  #chat-log { flex:1; overflow:auto; padding:1rem; min-height:0; }
+  #chat-form { display:flex; gap:.4rem; padding:.6rem 1rem; border-top:1px solid var(--border); flex:none; align-items:flex-end; }
+  #chat-form textarea { min-height:2.4rem; height:2.4rem; max-height:10rem; resize:none; }
+  body.q-open #chat-mic { display:none; }  /* the open question has its own dictation button */
+  /* resizable / collapsible side panels (desktop only) */
+  .resizer { display:none; }
+  @media (min-width: 1101px) {
+    .resizer { display:block; position:absolute; top:0; bottom:0; width:9px; z-index:30; cursor:col-resize; touch-action:none; }
+    #rz-left { left:calc(var(--lw) - 4px); }
+    #rz-right { right:calc(var(--rw) - 4px); }
+    .resizer::before { content:""; position:absolute; top:0; bottom:0; left:3px; width:3px; background:transparent; transition:background .15s; }
+    .resizer:hover::before, .resizer:focus-visible::before, .resizer.active::before { background:var(--accent); }
+    .rz-btn { position:absolute; top:.7rem; left:50%; transform:translateX(-50%); width:1.5rem; height:1.5rem; min-height:0; padding:0; border-radius:50%;
+              line-height:1; font-size:.95rem; background:var(--panel2); z-index:2; cursor:pointer; }
+    body.collapse-left #left, body.collapse-right #right { padding:0; border:0; overflow:hidden; visibility:hidden; }
+    body.collapse-left #rz-left { left:0; width:2rem; cursor:default; }
+    body.collapse-right #rz-right { right:0; width:2rem; cursor:default; }
+    body.collapse-left #rz-left::before, body.collapse-right #rz-right::before { display:none; }
+    body.collapse-left #rz-left .rz-btn { left:.3rem; transform:none; }
+    body.collapse-right #rz-right .rz-btn { left:auto; right:.3rem; transform:none; }
+    body.focus-mode .resizer { display:none; }
+    body.dragging { user-select:none; cursor:col-resize; }
+  }
+  .msg { margin:0 0 .9rem; padding:.75rem .9rem; border-radius:10px; background:var(--panel2); border:1px solid var(--border);
+         overflow-wrap:anywhere; font-size:1rem; line-height:1.6; max-width:70ch; }
+  .msg.user { background:var(--user-bg); margin-left:auto; max-width:85%; }
+  .msg.sys { background:transparent; border:0; color:var(--muted); font-size:.8125rem; padding:0; text-align:center; max-width:none; }
+  .msg.error { border-color:var(--bad); }
+  .msg p:first-child { margin-top:0; } .msg p:last-child { margin-bottom:0; }
+  .msg:focus { outline:none; } .msg:focus-visible { outline:2px solid var(--focus); }
+  .qhead { display:flex; gap:.4rem; flex-wrap:wrap; align-items:center; font-size:.8125rem; color:var(--muted); }
+  .qprogress { margin:.4rem 0 .6rem; }
+  fieldset { border:0; padding:0; margin:.5rem 0; }
+  legend { font-size:.8125rem; color:var(--muted); margin-bottom:.25rem; }
+  .opt { display:flex; align-items:flex-start; gap:.6rem; padding:.55rem .7rem; margin:.35rem 0; min-height:2.75rem;
+         border:1px solid var(--border); border-radius:8px; cursor:pointer; background:var(--bg); }
+  .opt:hover { border-color:var(--accent); }
+  .opt:has(input:checked) { border-color:var(--accent); background:var(--accent-bg); }
+  .opt input { margin-top:.3rem; }
+  .opt .key { font-weight:700; min-width:1.2rem; }
+  .opt.correct { border-color:var(--good); background:var(--good-bg); }
+  .opt.wrong { border-color:var(--bad); background:var(--bad-bg); }
+  .seg { display:inline-flex; border:1px solid var(--border); border-radius:8px; overflow:hidden; }
+  .seg label { display:flex; align-items:center; position:relative; min-height:2.25rem; padding:0 .8rem; cursor:pointer; border-right:1px solid var(--border); font-size:.875rem; }
+  .seg label:last-child { border-right:0; }
+  .seg input { position:absolute; opacity:0; width:1px; height:1px; }
+  .seg label:has(input:checked) { background:var(--accent-bg); font-weight:700; }
+  .seg label:has(input:focus-visible) { outline:2px solid var(--focus); outline-offset:-2px; }
+  .with-mic { display:flex; gap:.4rem; align-items:stretch; }
+  .with-mic textarea { flex:1; min-height:5rem; }
+  .mic { margin:0; white-space:nowrap; }
+  .mic[aria-pressed=true] { background:var(--bad-bg); border-color:var(--bad); animation:pulse 1.2s infinite; }
+  @keyframes pulse { 50% { box-shadow:0 0 0 4px #f8514944; } }
+  .verdict { display:flex; gap:.4rem; align-items:center; flex-wrap:wrap; font-size:1.05rem; }
+  .score { font-weight:700; border-radius:999px; padding:0 .6rem; border:1px solid var(--border); font-size:.8125rem; }
+  .s0 { background:var(--bad-bg); border-color:var(--bad); } .s1 { background:var(--warn-bg); border-color:var(--warn); } .s2 { background:var(--good-bg); border-color:var(--good); }
+  details > summary { cursor:pointer; color:var(--accent); font-size:.875rem; margin-top:.5rem; min-height:1.75rem; }
+  .compare { display:grid; grid-template-columns:1fr 1fr; gap:.75rem; margin-top:.4rem; }
+  .compare blockquote { margin:0; padding-left:.6rem; border-left:3px solid var(--border); color:var(--muted); }
+  .notes li { margin:.25rem 0; }
+  table.tbl { border-collapse:collapse; width:100%; font-size:.875rem; }
+  table.tbl td, table.tbl th { border-bottom:1px solid var(--border); padding:.35rem; text-align:left; vertical-align:top; }
+  table.tbl input[type=number] { width:3.5rem; }
+  .step { border-left:3px solid var(--accent); padding:.25rem 0 .25rem .75rem; margin:.75rem 0; }
+  .thinking { display:flex; gap:.6rem; align-items:center; justify-content:center; }
+  .spinner { width:.9rem; height:.9rem; border:2px solid var(--border); border-top-color:var(--accent); border-radius:50%; animation:spin .8s linear infinite; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+  /* focus mode: hide graph + filters during a quiz */
+  body.focus-mode { grid-template-columns: 1fr; grid-template-rows: 100vh; }
+  body.focus-mode #left, body.focus-mode #graph { display:none; }
+  body.focus-mode #right { border-left:0; grid-column: 1 / -1; height:100vh; }
+  body.focus-mode #chat-log > *, body.focus-mode #tutor-head > *, body.focus-mode #chat-form { max-width:760px; margin-left:auto; margin-right:auto; width:100%; }
+  @media (max-width: 1100px) {
+    body { grid-template-columns: 1fr; grid-template-rows: 55vh auto auto; height:auto; overflow:auto; }
+    #left { border-right:0; border-bottom:1px solid var(--border); }
+    #right { border-left:0; height:92vh; }
+    #graph { height:55vh; order:-1; }
+    .compare { grid-template-columns:1fr; }
+  }
+</style>
+</head>
+<body>
+<div class="resizer" id="rz-left" role="separator" aria-orientation="vertical" aria-label="Resize the filters panel (arrow keys; Home resets)" tabindex="0">
+  <button type="button" class="rz-btn" id="tg-left" title="Hide / show filters  ( [ )" aria-label="Hide filters panel">‹</button></div>
+<div class="resizer" id="rz-right" role="separator" aria-orientation="vertical" aria-label="Resize the tutor panel (arrow keys; Home resets)" tabindex="0">
+  <button type="button" class="rz-btn" id="tg-right" title="Hide / show details &amp; tutor  ( ] )" aria-label="Hide tutor panel">›</button></div>
+<aside id="left" aria-label="Graph filters">
+  <nav class="appnav hidden" id="nav" aria-label="Main">
+    <a href="/">🏠 Today</a><a href="/graph" aria-current="page">🧠 Graph</a><a href="/build">🛠 Build</a><a href="/arena">🏁 Challenges</a>
+  </nav>
+  <h1>🧠 Knowledge Graph</h1>
+  <label for="q" class="sr-only">Search concepts</label>
+  <input id="q" type="search" placeholder="Search… (/), Enter to focus" autocomplete="off">
+  <h2 id="hl-h">Highlight</h2>
+  <select id="highlight" aria-labelledby="hl-h">
+    <option value="">Everything</option>
+    <option value="ready">🌱 Ready to learn</option>
+    <option value="due">🔁 Due for review</option>
+    <option value="gaps">🕳 Gaps (mastery 1–2)</option>
+    <option value="mastered">✅ Mastered (≥ 3)</option>
+    <option value="practiced">🛠 Practiced in projects</option>
+  </select>
+  <h2>Domains</h2><div id="domains"></div>
+  <h2>Show</h2><div id="types"></div>
+  <h2>Connections</h2><div id="edges"></div>
+  <h2>Layout</h2>
+  <div class="row"><button id="layout-force">Network</button><button id="layout-tree">Prerequisite tree</button></div>
+  <details id="legend">
+    <summary>Legend</summary>
+    <dl>
+      <dt>●</dt><dd>Concept — bigger = higher mastery; ●●○ pips under the name</dd>
+      <dt>◆</dt><dd>Project</dd><dt>▲</dt><dd>Contribution / OSS target</dd>
+      <dt>⬢</dt><dd>Development challenge</dd><dt>■</dt><dd>Book</dd><dt>★</dt><dd>Roadmap</dd>
+      <dt style="color:var(--warn)">◯</dt><dd>Gold ring — ready to learn</dd>
+      <dt style="color:var(--accent)">◌</dt><dd>Dashed ring — due for review</dd>
+      <dt>→</dt><dd>Arrow from prerequisite to what it unlocks</dd>
+      <dt>⇢</dt><dd>Dashed green — practised in a project</dd>
+    </dl>
+    <p class="muted">Colours use the colour-blind-safe Okabe–Ito palette; shapes and labels carry the same information.</p>
+  </details>
+  <p class="muted" id="stats" aria-live="polite"></p>
+  <div class="row" style="margin-top:auto"><button id="theme" class="ghost"></button><button id="help-btn" class="ghost" aria-haspopup="dialog">⌨ Shortcuts</button></div>
+</aside>
+<div id="graph" role="img" aria-label="Concept graph. Use search or the Details panel to navigate with a keyboard."></div>
+<aside id="right">
+  <div class="tabs" role="tablist" aria-label="Panels">
+    <button role="tab" id="tab-details" aria-controls="details" aria-selected="true">Details</button>
+    <button role="tab" id="tab-tutor" aria-controls="tutor" aria-selected="false" tabindex="-1">🎓 Tutor</button>
+  </div>
+  <section id="details" class="tabpanel" role="tabpanel" aria-labelledby="tab-details">
+    <p class="muted">Select a concept — click it, or search and press Enter. Its prerequisite path is highlighted and the rest dims. Press <kbd>Esc</kbd> to show everything.</p>
+  </section>
+  <section id="tutor" class="tabpanel hidden" role="tabpanel" aria-labelledby="tab-tutor">
+    <div id="tutor-offline" class="tabpanel">
+      <h1>🎓 AI Tutor</h1>
+      <p>The tutor needs the local server. In the repo folder run:</p>
+      <pre><code>.\kg.cmd serve --open</code></pre>
+    </div>
+    <div id="tutor-app" class="hidden" style="display:flex;flex-direction:column;flex:1;min-height:0">
+      <form id="assess-form">
+        <div id="tutor-head">
+          <div class="row" style="justify-content:space-between">
+            <span class="muted" id="tutor-status">Connecting…</span>
+            <button type="button" id="focus-btn" class="ghost" aria-pressed="false" title="Hide the graph while you work">⛶ Focus mode</button>
+          </div>
+          <div class="row" style="margin-top:.4rem">
+            <label for="topic" class="sr-only">Topic</label>
+            <input id="topic" type="text" placeholder="Topic, e.g. TLS handshake" autocomplete="off">
+            <label for="nq" class="sr-only">Number of questions</label>
+            <select id="nq" title="Number of questions"><option>4</option><option selected>6</option><option>8</option><option>10</option></select>
+            <button type="button" id="learn-btn">📘 Learn</button>
+            <button class="primary" id="start-btn">🎓 Quiz</button>
+          </div>
+        </div>
+      </form>
+      <div id="chat-log" role="log" aria-live="polite" aria-relevant="additions">
+        <div class="msg">
+          <p><b>Two modes</b></p>
+          <ul style="margin:.3rem 0 .6rem;padding-left:1.2rem">
+            <li><b>📘 Learn</b> — a bite-size lesson (fact-checked against your books), a quick check after each chunk, then a hands-on exercise the tutor reviews.</li>
+            <li><b>🎓 Quiz</b> — adaptive questions that set your real mastery level.</li>
+          </ul>
+          <p><b>In a quiz</b></p>
+          <ol style="margin:.3rem 0 0;padding-left:1.2rem">
+            <li>Pick an answer — keys <kbd>1</kbd>–<kbd>4</kbd> work when the question is focused.</li>
+            <li>Say how sure you are <i>before</i> you see the answer. Confident mistakes are the most valuable to catch.</li>
+            <li>Explain <i>why</i> — type or 🎤 dictate. Explaining is what makes it stick.</li>
+          </ol>
+          <p class="muted" style="margin-top:.5rem">Then you get a study plan from your books, and suggested mastery you can apply to the graph.</p>
+        </div>
+      </div>
+      <form id="chat-form">
+        <label for="chat-input" class="sr-only">Message the tutor</label>
+        <textarea id="chat-input" placeholder="Ask the tutor… (Enter to send · Shift+Enter newline)" disabled></textarea>
+        <span id="chat-mic"></span>
+        <button id="chat-send" disabled>Send</button>
+      </form>
+    </div>
+  </section>
+</aside>
+
+<dialog id="help" aria-labelledby="help-title">
+  <h2 id="help-title" style="font-size:1rem;text-transform:none;color:var(--fg)">Keyboard shortcuts</h2>
+  <table>
+    <tr><td><kbd>/</kbd></td><td>Search concepts</td></tr>
+    <tr><td><kbd>Esc</kbd></td><td>Clear focus — show the whole graph</td></tr>
+    <tr><td><kbd>[</kbd> / <kbd>]</kbd></td><td>Hide / show the left filters panel / the right tutor panel</td></tr>
+    <tr><td>Drag a panel edge</td><td>Resize it (double-click or <kbd>Home</kbd> resets; arrow keys when focused)</td></tr>
+    <tr><td><kbd>1</kbd>–<kbd>4</kbd> / <kbd>A</kbd>–<kbd>D</kbd></td><td>Choose an option (while the question card is focused)</td></tr>
+    <tr><td><kbd>Ctrl</kbd>+<kbd>Enter</kbd></td><td>Submit your answer</td></tr>
+    <tr><td><kbd>Ctrl</kbd>+<kbd>Space</kbd></td><td>Start/stop dictation in a text box</td></tr>
+    <tr><td><kbd>Enter</kbd> / <kbd>Shift</kbd>+<kbd>Enter</kbd></td><td>Send chat / new line</td></tr>
+    <tr><td><kbd>?</kbd></td><td>This help</td></tr>
+  </table>
+  <p><label><input type="checkbox" id="shortcuts-on"> Enable single-key shortcuts (<kbd>/</kbd>, <kbd>?</kbd>, <kbd>1</kbd>–<kbd>4</kbd>)</label></p>
+  <form method="dialog"><button class="primary">Close</button></form>
+</dialog>
+
+<script>
+const { esc, md } = KG;
+let GRAPH = __GRAPH_JSON__;
+/* Okabe–Ito colour-blind-safe palette */
+const COLORS = { math:"#CC79A7", cs:"#56B4E9", systems:"#E69F00", security:"#D55E00", ai:"#009E73", meta:"#999999" };
+const EDGE_STYLE = {
+  prereq:    { color:"#8b949e", dashes:false, arrows:"to", label:"prerequisite → unlocks" },
+  related:   { color:"#56B4E9", dashes:[6,4], arrows:"", label:"related" },
+  covers:    { color:"#E69F00", dashes:[2,4], arrows:"to", label:"book covers" },
+  practices: { color:"#009E73", dashes:[4,3], arrows:"to", label:"practised in project" },
+  mention:   { color:"#6e7681", dashes:false, arrows:"", label:"mentions" },
+};
+const MASTERY_TEXT = ["not started", "heard of it", "can explain the basics", "can apply it", "can implement or teach it", "expert"];
+const NEXT_LEVEL = [
+  "Read the summary and take a short quiz to get on the board.",
+  "Explain the key ideas in your own words — aim for reasoning 2/2 on recall questions.",
+  "Answer application questions correctly with confident, sound reasoning.",
+  "Use it for real: finish a project milestone that practises it, or ace hard analysis questions.",
+  "Teach it, handle edge cases, and tackle research-level questions.",
+];
+const shortcutsOn = () => localStorage.getItem("kgShortcuts") !== "off";
+const state = {
+  domains: new Set(GRAPH.domains), types: new Set(["concept", "project", "book"]),
+  edges: new Set(["prereq", "related", "covers", "practices"]),
+  query: "", highlight: "", tree: false, focus: null,
+};
+let byId = {};
+const indexGraph = () => { byId = Object.fromEntries(GRAPH.nodes.map(n => [n.id, n])); };
+indexGraph();
+const prereqsOf = id => GRAPH.edges.filter(e => e.kind === "prereq" && e.to === id).map(e => e.from);
+const dependentsOf = id => GRAPH.edges.filter(e => e.kind === "prereq" && e.from === id).map(e => e.to);
+const linked = (id, kind) => GRAPH.edges.filter(e => e.kind === kind && (e.from === id || e.to === id)).map(e => e.from === id ? e.to : e.from);
+const isReady = n => n.type === "concept" && n.mastery < 3 && prereqsOf(n.id).every(p => byId[p] && byId[p].mastery >= 3);
+const practiced = new Set();
+const indexPracticed = () => { practiced.clear(); GRAPH.edges.filter(e => e.kind === "practices").forEach(e => practiced.add(e.to)); };
+indexPracticed();
+function ancestors(id, acc = new Set()) {
+  for (const p of prereqsOf(id)) if (!acc.has(p)) { acc.add(p); ancestors(p, acc); }
+  return acc;
+}
+function focusSet(id) {
+  const s = ancestors(id); s.add(id);
+  dependentsOf(id).forEach(x => s.add(x));
+  ["related", "covers", "practices"].forEach(k => linked(id, k).forEach(x => s.add(x)));
+  return s;
+}
+const HIGHLIGHT = {
+  ready: n => isReady(n), due: n => n.due, gaps: n => n.type === "concept" && n.mastery >= 1 && n.mastery <= 2,
+  mastered: n => n.type === "concept" && n.mastery >= 3,
+  practiced: n => practiced.has(n.id) || ["project", "contribution", "challenge"].includes(n.type),
+};
+
+function checkbox(container, key, value, label, color) {
+  const el = document.createElement("label");
+  el.innerHTML = `<input type="checkbox" ${state[key].has(value) ? "checked" : ""}>` +
+    (color ? `<span class="dot" style="background:${color}" aria-hidden="true"></span>` : "") + label;
+  el.querySelector("input").onchange = e => { e.target.checked ? state[key].add(value) : state[key].delete(value); render(); };
+  document.getElementById(container).appendChild(el);
+}
+GRAPH.domains.forEach(d => checkbox("domains", "domains", d, `${d} <span class="muted">(${GRAPH.nodes.filter(n => n.domain === d).length})</span>`, COLORS[d]));
+["concept", "roadmap", "book", "project", "contribution", "challenge"].forEach(t => checkbox("types", "types", t, `${t} <span class="muted">(${GRAPH.nodes.filter(n => n.type === t).length})</span>`));
+Object.entries(EDGE_STYLE).forEach(([k, s]) => checkbox("edges", "edges", k, s.label, s.color));
+
+const nodes = new vis.DataSet(), edges = new vis.DataSet();
+const network = new vis.Network(document.getElementById("graph"), { nodes, edges }, {
+  nodes: { shape: "dot", borderWidth: 2, font: { size: 13, strokeWidth: 3 } },
+  edges: { smooth: { type: "continuous" }, width: 1.2, arrows: { to: { scaleFactor: 0.5 } } },
+  physics: { solver: "forceAtlas2Based", forceAtlas2Based: { gravitationalConstant: -60, springLength: 110 }, stabilization: { iterations: 300 } },
+  interaction: { hover: true, tooltipDelay: 150, keyboard: false },
+});
+let physicsRunning = true;
+const settle = () => { if (!state.tree && physicsRunning) { network.setOptions({ physics: { enabled: false } }); physicsRunning = false; } };
+network.on("stabilizationIterationsDone", settle);
+network.on("stabilized", settle);
+
+function visible(n) { return state.domains.has(n.domain) && state.types.has(n.type); }
+function render() {
+  const q = state.query.toLowerCase();
+  const fg = KG.cssVar("--fg"), bg = KG.cssVar("--bg"), warn = KG.cssVar("--warn"), accent = KG.cssVar("--accent");
+  const shown = GRAPH.nodes.filter(visible);
+  const ids = new Set(shown.map(n => n.id));
+  const fset = state.focus && byId[state.focus] ? focusSet(state.focus) : null;
+  const hl = HIGHLIGHT[state.highlight];
+  const path = fset ? ancestors(state.focus) : null;
+  const dimmed = n => (fset && !fset.has(n.id)) || (hl && !hl(n));
+  const old = new Set(nodes.getIds());
+  nodes.remove([...old].filter(id => !ids.has(id)));
+  const added = shown.some(n => !old.has(n.id));
+  nodes.update(shown.map(n => {
+    const hit = q && (n.title.toLowerCase().includes(q) || n.id.includes(q) || n.tags.some(t => t.includes(q)));
+    const c = COLORS[n.domain] || COLORS.meta;
+    const work = ["project", "contribution", "challenge"].includes(n.type);
+    const ready = isReady(n), dim = dimmed(n) && !hit;
+    const pips = n.type === "concept" && n.mastery > 0 ? "\n" + "●".repeat(n.mastery) + "○".repeat(5 - n.mastery) : "";
+    return {
+      id: n.id, label: n.title + pips, level: n.depth,
+      size: n.type === "roadmap" ? 26 : n.type === "book" ? 18 : work ? 13 : 9 + n.mastery * 3,
+      shape: { roadmap: "star", book: "square", project: "diamond", contribution: "triangle", challenge: "hexagon" }[n.type] || "dot",
+      color: { background: c, border: hit || n.id === state.focus ? fg : n.due ? accent : ready ? warn : c,
+               highlight: { background: c, border: fg }, hover: { background: c, border: fg } },
+      shapeProperties: { borderDashes: n.due ? [4, 3] : false },
+      borderWidth: hit || n.id === state.focus ? 5 : n.due || ready ? 3 : 1,
+      opacity: dim ? 0.15 : (n.mastery === 0 && n.type === "concept") || (work && ["idea", "planned"].includes(n.status)) ? 0.65 : 1,
+      font: { color: dim ? KG.cssVar("--muted") : fg, strokeColor: bg },
+      title: `${n.title}\n${n.summary || ""}\n` + (work ? `${n.type} · ${n.status}` : `mastery ${n.mastery}/5 — ${MASTERY_TEXT[n.mastery]}`)
+             + (n.due ? "\n🔁 due for review" : "") + (ready ? "\n🌱 ready to learn" : ""),
+    };
+  }));
+  const wanted = GRAPH.edges.filter(e => state.edges.has(e.kind) && ids.has(e.from) && ids.has(e.to));
+  edges.clear();
+  edges.add(wanted.map((e, i) => {
+    const s = EDGE_STYLE[e.kind];
+    const onPath = path && e.kind === "prereq" && (path.has(e.from) || e.from === state.focus) && (path.has(e.to) || e.to === state.focus);
+    const dim = (fset && !(fset.has(e.from) && fset.has(e.to))) || (hl && !(hl(byId[e.from]) && hl(byId[e.to])));
+    return { id: i, from: e.from, to: e.to, dashes: s.dashes, arrows: s.arrows, width: onPath ? 3 : 1.2,
+             color: { color: onPath ? accent : s.color, opacity: dim ? 0.08 : 0.85 } };
+  }));
+  if (added && !state.tree && !physicsRunning) {
+    physicsRunning = true;
+    network.setOptions({ physics: { enabled: true } });
+  }
+  const cs = GRAPH.nodes.filter(n => n.type === "concept");
+  document.getElementById("stats").textContent =
+    `${cs.length} concepts · ${cs.filter(n => n.mastery >= 3).length} mastered · ${cs.filter(isReady).length} ready · ` +
+    `${cs.filter(n => n.due).length} due`;
+}
+function applyLayout() {
+  physicsRunning = !state.tree;
+  network.setOptions(state.tree
+    ? { layout: { hierarchical: { enabled: true, direction: "LR", sortMethod: "directed", levelSeparation: 230, nodeSpacing: 70 } }, physics: { enabled: false } }
+    : { layout: { hierarchical: { enabled: false } }, physics: { enabled: true } });
+  render();
+  setTimeout(() => network.fit({ animation: !KG.reducedMotion() }), 60);
+}
+function focusNode(id, { scroll = true } = {}) {
+  state.focus = id; render(); showDetails(id);
+  if (scroll && nodes.get(id)) network.focus(id, { scale: 1.05, animation: KG.reducedMotion() ? false : { duration: 400 } });
+  network.selectNodes(nodes.get(id) ? [id] : []);
+}
+function clearFocus() {
+  state.focus = null; render(); network.unselectAll();
+  document.getElementById("details").innerHTML = '<p class="muted">Showing everything. Select a concept to focus on its learning path.</p>';
+}
+
+function pills(ids) {
+  return ids.length ? ids.map(id => {
+    const n = byId[id], m = n && n.type === "concept" ? ` <span class="muted">${n.mastery}/5</span>` : "";
+    return `<button class="chip" data-id="${esc(id)}">${esc(n ? n.title : id)}${m}</button>`;
+  }).join("") : '<span class="muted">none</span>';
+}
+function showDetails(id) {
+  const n = byId[id]; if (!n) return;
+  const work = ["project", "contribution", "challenge"].includes(n.type);
+  const pre = prereqsOf(id), missing = pre.filter(p => byId[p] && byId[p].mastery < 3);
+  let status = "";
+  if (n.type === "concept") {
+    status = n.mastery >= 3 ? '<span class="badge good">✅ Mastered</span>'
+      : isReady(n) ? '<span class="badge warn">🌱 Ready to learn</span>'
+      : `<span class="badge">🔒 Needs ${missing.map(p => esc(byId[p].title)).join(", ")} at 3+</span>`;
+    if (n.due) status += ' <span class="badge info">🔁 Due for review</span>';
+  } else if (work && n.status) status = `<span class="badge">${esc(n.status)}</span>`;
+  const el = document.getElementById("details");
+  el.innerHTML = `
+    <div class="muted">${n.type} · <span class="dot" style="background:${COLORS[n.domain]}" aria-hidden="true"></span> ${n.domain}</div>
+    <h1>${esc(n.title)}</h1>
+    <div class="status-line">${status}</div>
+    <p class="reading">${esc(n.summary) || '<span class="muted">No summary.</span>'}</p>
+    ${n.type === "concept" ? `
+      <div class="row" style="justify-content:space-between"><span><b>Mastery ${n.mastery}/5</b> — ${MASTERY_TEXT[n.mastery]}</span><span class="pip" aria-hidden="true">${"●".repeat(n.mastery)}${"○".repeat(5 - n.mastery)}</span></div>
+      <div class="meter" role="progressbar" aria-label="Mastery" aria-valuenow="${n.mastery}" aria-valuemin="0" aria-valuemax="5" style="margin:.3rem 0 .7rem"><div style="width:${n.mastery * 20}%"></div></div>
+      ${n.mastery < 5 ? `<div class="next-level"><b>To reach ${n.mastery + 1}:</b> ${NEXT_LEVEL[n.mastery]}</div>` : ""}
+      <div class="actions">
+        <button class="primary" data-act="learn">📘 Learn</button>
+        <button data-act="quiz">🎓 Quiz me</button>
+        ${n.mastery >= 1 ? '<button data-act="review">🔁 Quick review (3)</button>' : ""}
+        <button class="ghost" data-act="clear">Show everything</button>
+      </div>` : `<div class="actions">
+        ${work && /^https:\/\/github\.com\//.test(n.url) ? `<a href="${esc(n.url)}" target="_blank" rel="noopener">Open on GitHub ↗</a>` : ""}
+        ${n.type === "challenge" ? `<a class="chip" href="/arena#${esc(n.id)}">🏁 Open challenge</a>` : ""}
+        <button class="ghost" data-act="clear">Show everything</button></div>`}
+    ${work ? `<h2>Practises</h2>${pills(linked(id, "practices"))}` : `
+      <h2>Prerequisites (learn first)</h2>${pills(pre)}
+      <h2>Unlocks</h2>${pills(dependentsOf(id))}
+      <h2>Related</h2>${pills(linked(id, "related"))}
+      ${n.type === "concept" ? `<h2>Practised in projects</h2>${pills(linked(id, "practices"))}` : ""}`}
+    ${linked(id, "covers").length ? `<h2>Books</h2>${pills(linked(id, "covers"))}` : ""}
+    <h2>File</h2><code>${esc(n.path)}</code>`;
+  el.querySelectorAll("[data-id]").forEach(p => p.onclick = () => focusNode(p.dataset.id));
+  el.querySelectorAll("[data-act]").forEach(b => b.onclick = () => {
+    if (b.dataset.act === "clear") return clearFocus();
+    switchTab("tutor");
+    if (!KG.served()) return;
+    setTopic(n);
+    if (b.dataset.act === "learn") return startLesson(n.id);
+    $("nq").value = b.dataset.act === "review" ? "4" : $("nq").value;
+    $("assess-form").requestSubmit();
+  });
+  if (!tutor.id) setTopic(n);
+}
+network.on("click", p => p.nodes.length ? focusNode(p.nodes[0], { scroll: false }) : null);
+const qInput = document.getElementById("q");
+qInput.oninput = e => { state.query = e.target.value.trim(); render(); };
+qInput.onkeydown = e => {
+  if (e.key !== "Enter") return;
+  const q = state.query.toLowerCase();
+  const hit = GRAPH.nodes.filter(visible).find(n => n.title.toLowerCase().includes(q) || n.id.includes(q));
+  if (hit) { state.query = ""; qInput.value = ""; focusNode(hit.id); } else KG.toast("No match for “" + esc(q) + "”");
+};
+document.getElementById("highlight").onchange = e => { state.highlight = e.target.value; render(); };
+document.getElementById("layout-force").onclick = () => { state.tree = false; applyLayout(); };
+document.getElementById("layout-tree").onclick = () => { state.tree = true; applyLayout(); };
+KG.themeButton(document.getElementById("theme"));
+document.addEventListener("kg-theme", render);
+render();
+
+/* ---------------------------------------------------------------- tabs, help, keyboard */
+function switchTab(name) {
+  [["details", "tab-details"], ["tutor", "tab-tutor"]].forEach(([panel, tab]) => {
+    const on = panel === name;
+    document.getElementById(tab).setAttribute("aria-selected", on);
+    document.getElementById(tab).tabIndex = on ? 0 : -1;
+    document.getElementById(panel).classList.toggle("hidden", !on);
+  });
+}
+document.querySelectorAll("[role=tab]").forEach(t => {
+  t.onclick = () => switchTab(t.getAttribute("aria-controls"));
+  t.onkeydown = e => { if (e.key === "ArrowRight" || e.key === "ArrowLeft") { const o = t.id === "tab-details" ? "tutor" : "details"; switchTab(o); document.getElementById("tab-" + o).focus(); } };
+});
+/* Safety net: on desktop the page never scrolls (only the panels inside it do). */
+window.addEventListener("scroll", () => { if (innerWidth > 1100 && (scrollY || scrollX)) scrollTo(0, 0); });
+document.addEventListener("scroll", () => { if (innerWidth > 1100) document.scrollingElement.scrollTop = 0; }, true);
+const help = document.getElementById("help");
+document.getElementById("help-btn").onclick = () => help.showModal();
+const sc = document.getElementById("shortcuts-on");
+sc.checked = shortcutsOn();
+sc.onchange = () => localStorage.setItem("kgShortcuts", sc.checked ? "on" : "off");
+const typing = el => ["INPUT", "TEXTAREA", "SELECT"].includes(el.tagName) || el.isContentEditable;
+document.addEventListener("keydown", e => {
+  if (e.ctrlKey && e.code === "Space" && e.target.tagName === "TEXTAREA" && e.target._mic && !e.target._mic.hidden) { e.preventDefault(); e.target._mic.click(); return; }
+  if (help.open || typing(e.target) || e.ctrlKey || e.metaKey || e.altKey) return;
+  if (e.key === "Escape" && state.focus) { clearFocus(); return; }
+  if (!shortcutsOn()) return;
+  if (e.key === "/") { e.preventDefault(); qInput.focus(); }
+  else if (e.key === "?") { e.preventDefault(); help.showModal(); }
+});
+
+/* ---------------------------------------------------------------- tutor */
+const tutor = { id: null, slug: null, slugs: null, busy: false };
+const $ = id => document.getElementById(id);
+const log = $("chat-log");
+const LETTERS = "ABCD";
+const CONF = { guess: "🤷 Guessing", think: "🤔 Think so", sure: "💯 Sure" };
+
+function addMsg(cls, html, { focus = false } = {}) {
+  const d = document.createElement("div");
+  d.className = "msg " + cls; d.innerHTML = html;
+  log.appendChild(d);
+  if (focus) { d.tabIndex = -1; d.focus({ preventScroll: true }); }
+  // Scroll only the chat log: scrollIntoView() would also scroll the whole page and shift the app out of view.
+  const top = d.offsetTop - log.offsetTop;
+  const target = d.offsetHeight > log.clientHeight ? top - 8 : top + d.offsetHeight - log.clientHeight + 8;
+  log.scrollTo({ top: Math.max(0, target), behavior: KG.reducedMotion() ? "auto" : "smooth" });
+  return d;
+}
+/* NN/g: show status within 0.1 s, name the stages of long waits, let people cancel. */
+function thinking(stages, cancellable) {
+  const ctrl = new AbortController(), t0 = Date.now();
+  const d = addMsg("sys", `<div class="thinking" role="status"><span class="spinner" aria-hidden="true"></span><span class="lbl"></span>
+    ${cancellable ? '<button class="ghost" type="button">Cancel</button>' : ""}</div>`);
+  const lbl = d.querySelector(".lbl");
+  const tick = () => { const s = Math.round((Date.now() - t0) / 1000); lbl.textContent = `${stages[Math.min(stages.length - 1, Math.floor(s / 8))]} ${s}s`; };
+  tick();
+  const timer = setInterval(tick, 1000);
+  if (cancellable) d.querySelector("button").onclick = () => ctrl.abort();
+  return { signal: ctrl.signal, stop: () => { clearInterval(timer); d.remove(); } };
+}
+function setBusy(b) {
+  tutor.busy = b;
+  $("start-btn").disabled = b;
+  $("learn-btn").disabled = b;
+  $("chat-send").disabled = b || !tutor.id;
+  $("chat-input").disabled = !tutor.id;
+  if ($("chat-input")._mic) $("chat-input")._mic.disabled = !tutor.id;
+}
+async function guarded(stages, fn, { cancellable = false } = {}) {
+  if (tutor.busy) return;
+  setBusy(true);
+  const t = thinking(Array.isArray(stages) ? stages : [stages], cancellable);
+  try { return await fn(t.signal); }
+  catch (e) { if (e.name === "AbortError") addMsg("sys", "Cancelled."); else addMsg("error", "⚠️ " + esc(e.message) + " — you can try again."); }
+  finally { t.stop(); setBusy(false); }
+}
+function setTopic(n) { $("topic").value = n.title; tutor.slug = n.id; tutor.slugs = null; }
+$("topic").oninput = () => { tutor.slug = null; tutor.slugs = null; };
+$("focus-btn").onclick = () => {
+  const on = document.body.classList.toggle("focus-mode");
+  $("focus-btn").setAttribute("aria-pressed", on);
+  $("focus-btn").textContent = on ? "⛶ Exit focus" : "⛶ Focus mode";
+  if (!on) setTimeout(() => network.redraw(), 50);
+};
+
+$("assess-form").onsubmit = e => {
+  e.preventDefault();
+  const topic = $("topic").value.trim();
+  if (!topic && !tutor.slugs) { $("topic").focus(); return; }
+  guarded(["Preparing your first question…", "Searching your books…", "Writing the question…"], async () => {
+    if (tutor.id) addMsg("sys", "— new session —");
+    const r = await KG.api("/api/assessments", { topic, slug: tutor.slug, slugs: tutor.slugs, questions: +$("nq").value });
+    tutor.id = r.id;
+    const names = r.candidates.map(s => byId[s] ? byId[s].title : s);
+    addMsg("", md(`**${r.topic}**` + (names.length ? `\n\nIn scope: ${names.join(", ")}` : "")));
+    renderQuestion(r.question);
+  });
+};
+
+function renderQuestion(q) {
+  const qid = "q" + q.index + "-" + Date.now();
+  const card = addMsg("", `
+    <div class="qhead"><b>Question ${q.index} of ${q.total}</b>
+      <span class="badge">${esc(byId[q.concept] ? byId[q.concept].title : q.concept || "general")}</span>
+      <span class="badge">${esc(q.difficulty)}</span><span class="badge">${esc(q.skill)}</span></div>
+    <div class="meter qprogress" role="progressbar" aria-label="Session progress" aria-valuenow="${q.index - 1}" aria-valuemax="${q.total}"><div style="width:${100 * (q.index - 1) / q.total}%"></div></div>
+    <div id="${qid}">${md(q.question)}</div>
+    <form>
+      <fieldset><legend class="sr-only">Options</legend>
+        ${q.options.map((o, i) => `<label class="opt"><input type="radio" name="c" value="${i}"><span class="key">${LETTERS[i]}</span><span>${md(o)}</span></label>`).join("")}
+      </fieldset>
+      <fieldset><legend>How sure are you? <span class="muted">(before you see the answer)</span></legend>
+        <div class="seg">${Object.entries(CONF).map(([k, v]) => `<label><input type="radio" name="conf" value="${k}"><span>${v}</span></label>`).join("")}</div>
+      </fieldset>
+      <label class="muted" for="${qid}-why" style="display:block;margin-top:.5rem"><b style="color:var(--fg)">Why this option — and why not the others?</b>
+        Full marks need the mechanism, not just the fact.</label>
+      <div class="with-mic"><textarea id="${qid}-why" name="why" placeholder="Type or dictate your reasoning…"></textarea></div>
+      <div class="row" style="margin-top:.5rem">
+        <button class="primary">Submit <span class="muted" style="color:inherit;opacity:.8">Ctrl+Enter</span></button>
+        <button type="button" class="ghost hint-btn">💡 Hint</button>
+        <span class="muted hint" role="status"></span>
+      </div>
+    </form>`);
+  card.setAttribute("role", "group"); card.setAttribute("aria-labelledby", qid);
+  card.tabIndex = -1; card.focus({ preventScroll: true });
+  const form = card.querySelector("form");
+  form.querySelector(".with-mic").appendChild(micButton(form.why, "Dictate answer"));
+  document.body.classList.add("q-open");
+  form.querySelector(".hint-btn").onclick = () => sendChat("Give me a hint for the current question without revealing the answer.", { echo: "💡 Hint please" });
+  card.addEventListener("keydown", e => {
+    if (e.ctrlKey && e.key === "Enter") { e.preventDefault(); form.requestSubmit(); return; }
+    if (!shortcutsOn() || typing(e.target) || e.ctrlKey || e.altKey || e.metaKey) return;
+    const i = "1234".indexOf(e.key) >= 0 ? "1234".indexOf(e.key) : "abcd".indexOf(e.key.toLowerCase());
+    if (i >= 0 && e.key.length === 1) { e.preventDefault(); const r = form.querySelectorAll("input[name=c]")[i]; r.checked = true; r.focus(); }
+  });
+  form.onsubmit = e => {
+    e.preventDefault();
+    stopDictation();
+    const c = form.querySelector("input[name=c]:checked"), conf = form.querySelector("input[name=conf]:checked");
+    const why = form.why.value.trim(), hint = form.querySelector(".hint");
+    if (!c) { hint.textContent = "Pick an option (1–4)."; form.querySelector("input[name=c]").focus(); return; }
+    if (!conf) { hint.textContent = "How sure are you?"; form.querySelector("input[name=conf]").focus(); return; }
+    if (why.length < 10) { hint.textContent = "Explain your reasoning in a sentence or two."; form.why.focus(); return; }
+    hint.textContent = "";
+    guarded(["Checking your answer…", "Grading your reasoning…", "Preparing the next question…"], async () => {
+      const r = await KG.api(`/api/assessments/${tutor.id}/answer`, { choice: +c.value, reasoning: why, confidence: conf.value });
+      form.querySelectorAll("input,textarea,button").forEach(x => x.disabled = true);
+      form.querySelector(".row").remove();
+      const opts = form.querySelectorAll(".opt");
+      opts[r.result.correct_index].classList.add("correct");
+      opts[r.result.correct_index].insertAdjacentHTML("beforeend", '<span class="badge good" style="margin-left:auto">✓ correct</span>');
+      if (!r.result.correct) { opts[+c.value].classList.add("wrong"); opts[+c.value].insertAdjacentHTML("beforeend", '<span class="badge bad" style="margin-left:auto">✗ your pick</span>'); }
+      renderGrade(r.result, r.score, +c.value, why);
+      if (r.next_question) renderQuestion(r.next_question);
+      return r.done;
+    }).then(done => { if (done) finishAssessment(); });
+  };
+}
+function renderGrade(g, score, choice, reasoning) {
+  const s = g.reasoning_score, notes = g.option_notes || [];
+  const c = byId[g.concept];
+  const verdict = g.correct ? '<span class="badge good">✅ Correct</span>' : '<span class="badge bad">❌ Incorrect</span>';
+  const calib = g.confident_wrong ? '<span class="badge warn">⚠ Confident but wrong — the most valuable mistake to fix</span>'
+    : g.correct && g.confidence === "guess" ? '<span class="badge info">Correct, but a guess — worth reviewing</span>' : "";
+  const d = addMsg("", `
+    <div class="verdict">${verdict}<span class="badge">${CONF[g.confidence] || ""}</span>${calib}</div>
+    ${g.misconception ? `<p><b>Misconception:</b> ${esc(g.misconception)}</p>` : ""}
+    ${notes[choice] ? `<p><b>Why ${LETTERS[choice]} ${g.correct ? "is right" : "is wrong"}:</b> ${esc(notes[choice])}</p>` : ""}
+    ${!g.correct && notes[g.correct_index] ? `<p><b>Why ${LETTERS[g.correct_index]} is right:</b> ${esc(notes[g.correct_index])}</p>` : ""}
+    <div><span class="score s${s}">Reasoning ${s}/2</span></div>
+    <div>${md(g.feedback)}</div>
+    ${g.missing ? `<p><b>Missing for full marks:</b> ${esc(g.missing)}</p>` : ""}
+    <details><summary>Explain every option</summary><ul class="notes">
+      ${notes.map((t, i) => `<li><b>${LETTERS[i]}</b> ${i === g.correct_index ? "✓" : "✗"} ${esc(t)}</li>`).join("")}</ul></details>
+    <details><summary>Compare your reasoning with the worked explanation</summary>
+      <div class="compare"><div><b>You</b><blockquote>${esc(reasoning)}</blockquote></div><div><b>Worked explanation</b>${md(g.explanation)}</div></div></details>
+    <div class="row muted" style="margin-top:.5rem">${c ? `Concept: <button class="chip" data-id="${esc(c.id)}">${esc(c.title)}</button>` : ""}
+      ${g.source ? `· 📖 ${esc(g.source)}` : ""}</div>
+    <div class="row" style="margin-top:.25rem"><span class="muted">Ask:</span>
+      <button class="chip" data-ask="Explain the correct answer to question ${score.answered} more simply, with an analogy.">Explain simpler</button>
+      <button class="chip" data-ask="Give me another concrete example of the idea behind question ${score.answered}.">Another example</button>
+      <button class="chip" data-ask="What exactly was missing or wrong in my reasoning on question ${score.answered}, and how would an expert phrase it?">Improve my reasoning</button>
+    </div>`);
+  wireChips(d);
+}
+function wireChips(el) {
+  el.querySelectorAll("[data-ask]").forEach(b => b.onclick = () => sendChat(b.dataset.ask, { echo: b.textContent }));
+  el.querySelectorAll("[data-id]").forEach(b => b.onclick = () => { focusNode(b.dataset.id); });
+}
+function finishAssessment() {
+  document.body.classList.remove("q-open");
+  const d = addMsg("", `<b>Session complete.</b> <button class="primary">📋 Build my study plan</button>`);
+  const btn = d.querySelector("button");
+  btn.onclick = () => guarded(["Scoring your answers…", "Searching your books…", "Designing your plan…", "Checking citations…"], async signal => {
+    const r = await KG.api(`/api/assessments/${tutor.id}/report`, {}, signal);
+    btn.remove();
+    renderReport(r);
+  }, { cancellable: true });
+  btn.click();
+}
+function calibrationNote(cal) {
+  const sure = cal.find(c => c.level === "sure"), guess = cal.find(c => c.level === "guess");
+  if (sure.total && sure.correct / sure.total < 0.75) return "When you felt <b>sure</b> you were often wrong — slow down on those topics; they hide misconceptions.";
+  if (guess.total && guess.correct / guess.total >= 0.67) return "Your guesses were mostly right — you know more than you think. Trust your reasoning a bit more.";
+  return "Your confidence matched your accuracy well.";
+}
+function renderReport(r) {
+  const s = r.score, hours = r.plan.reduce((a, p) => a + (+p.est_hours || 0), 0);
+  const list = (title, items) => items.length ? `<h3>${title}</h3><ul>${items.map(i => `<li>${esc(i)}</li>`).join("")}</ul>` : "";
+  const cal = s.calibration || [];
+  const d = addMsg("", `
+    <h2 style="font-size:1.1rem;text-transform:none;color:var(--fg);margin:0">📋 ${esc(r.topic)}</h2>
+    <div class="row" style="margin:.3rem 0"><span class="badge info">${esc(r.level)}</span><span class="badge">${s.correct}/${s.answered} correct</span>
+      <span class="badge">reasoning ${s.reasoning}/${s.reasoning_max}</span><span class="badge">plan ≈ ${hours.toFixed(1)} h</span></div>
+    <div>${md(r.summary)}</div>
+    ${cal.some(c => c.total) ? `<h3>Calibration</h3>
+      <table class="tbl"><tr><th>When you said…</th><th>Accuracy</th></tr>
+      ${cal.filter(c => c.total).map(c => `<tr><td>${CONF[c.level]}</td><td>${c.correct}/${c.total}</td></tr>`).join("")}</table>
+      <p class="muted">${calibrationNote(cal)}</p>` : ""}
+    ${list("Strengths", r.strengths)}${list("Gaps", r.gaps)}${list("Misconceptions", r.misconceptions)}
+    ${r.ratings.length ? `<h3>Suggested mastery</h3>
+      <table class="tbl"><tr><th><span class="sr-only">Apply</span></th><th>Concept</th><th>Now</th><th>New</th></tr>
+      ${r.ratings.map(x => `<tr><td><input type="checkbox" data-slug="${esc(x.slug)}" checked aria-label="Apply ${esc(x.title)}"></td>
+        <td>${esc(x.title)}<div class="muted">${esc(x.evidence)}</div></td><td>${x.current}</td>
+        <td><input type="number" min="0" max="5" value="${x.suggested}" data-for="${esc(x.slug)}" aria-label="New mastery for ${esc(x.title)}"></td></tr>`).join("")}
+      </table><div class="row" style="margin-top:.4rem"><button class="primary apply">Apply to my graph</button></div>` : ""}
+    <h3>Study plan</h3>
+    ${r.plan.map((p, i) => `<div class="step">
+      <b>${i + 1}. ${esc(p.title)}</b> <span class="muted">${esc(p.kind)} · ${esc(p.concept_title)} · ~${p.est_hours}h</span>
+      ${p.resources.length ? `<ul>${p.resources.map(x => `<li>📖 <b>${esc(x.book)}</b> ${esc(x.pages)}
+        <span class="badge ${x.status === "verified" ? "good" : x.status === "external" ? "" : "warn"}">${{ verified: "✓ verified page", unverified: "⚠ unverified page", "not-in-library": "⚠ not in library", external: "external" }[x.status]}</span>
+        <div class="muted">${esc(x.why)}</div></li>`).join("")}</ul>` : ""}
+      ${p.exercises.length ? `<div>✍️ Practice</div><ul>${p.exercises.map(x => `<li>${md(x)}</li>`).join("")}</ul>` : ""}
+    </div>`).join("")}
+    <p class="muted">Saved to <code>${esc(r.saved)}</code> and logged in today's journal. Ask follow-ups below.</p>`, { focus: true });
+  const apply = d.querySelector(".apply");
+  if (apply) apply.onclick = () => guarded("Updating your graph…", async () => {
+    const ratings = {};
+    d.querySelectorAll("input[data-slug]:checked").forEach(cb => { ratings[cb.dataset.slug] = +d.querySelector(`input[data-for="${cb.dataset.slug}"]`).value; });
+    const res = await KG.api(`/api/assessments/${tutor.id}/apply`, { ratings });
+    apply.disabled = true; apply.textContent = "✓ Applied";
+    const levelUps = res.applied.filter(a => a.to >= 3 && a.from < 3).map(a => byId[a.slug] ? byId[a.slug].title : a.slug);
+    addMsg("sys", res.applied.length ? "Updated: " + res.applied.map(a => `${esc(byId[a.slug] ? byId[a.slug].title : a.slug)} ${a.from}→${a.to}`).join(", ") : "No changes applied.");
+    if (levelUps.length) KG.toast(`🎉 <b>Mastered:</b> ${levelUps.map(esc).join(", ")}<div class="muted">New concepts may now be ready to learn.</div>`);
+    await refreshGraph();
+  });
+}
+async function refreshGraph() {
+  GRAPH = await KG.api("/api/graph"); indexGraph(); indexPracticed(); render();
+  if (state.focus) showDetails(state.focus);
+}
+
+/* ---------------------------------------------------------------- learn mode: chunk → check → next, then apply */
+function startLesson(slug) {
+  document.body.classList.remove("q-open");
+  const topic = $("topic").value.trim();
+  if (!slug && !topic) { $("topic").focus(); return; }
+  guarded(["Looking up your books…", "Checking facts…", "Writing your lesson…", "Designing a hands-on exercise…"], async signal => {
+    if (tutor.id) addMsg("sys", "— new lesson —");
+    const r = await KG.api("/api/lessons", { slug, topic }, signal);
+    tutor.id = r.id;
+    renderLesson(r);
+  }, { cancellable: true });
+}
+$("learn-btn").onclick = () => startLesson(tutor.slug);
+
+function renderLesson(r) {
+  const L = r.lesson, total = L.sections.length;
+  let correct = 0;
+  const src = L.sources.length ? `<div class="muted" style="margin-top:.4rem">📖 Fact-checked against: ${L.sources.map(s =>
+    `<span class="badge ${s.verified ? "good" : "warn"}" title="${esc(s.ref)}${s.verified ? " — page returned by book search" : " — not verified"}">${esc(s.label || s.ref)}</span>`).join(" ")}</div>`
+    : '<div class="muted" style="margin-top:.4rem">⚠ No book pages matched — this lesson is from general knowledge.</div>';
+  addMsg("", `<h2 style="font-size:1.1rem;text-transform:none;color:var(--fg);margin:0">📘 ${esc(L.title)}</h2>
+    <p>${md(L.why_it_matters)}</p>${src}`, { focus: true });
+
+  const showSection = i => {
+    const s = L.sections[i], c = s.check;
+    const card = addMsg("", `
+      <div class="qhead"><b>Part ${i + 1} of ${total}</b></div>
+      <div class="meter qprogress" role="progressbar" aria-label="Lesson progress" aria-valuenow="${i}" aria-valuemax="${total}"><div style="width:${100 * i / total}%"></div></div>
+      <h3 style="margin:.2rem 0">${esc(s.heading)}</h3>
+      <div>${md(s.explanation)}</div>
+      <details open><summary>Worked example</summary>${md(s.example)}</details>
+      <div class="card" style="margin-top:.6rem;background:var(--bg)">
+        <div class="muted"><b>Quick check</b> — pick one</div>
+        <div>${md(c.question)}</div>
+        <div class="checks">${c.options.map((o, j) => `<button type="button" class="opt" style="width:100%;text-align:left" data-j="${j}">
+          <span class="key">${LETTERS[j]}</span><span>${md(o)}</span></button>`).join("")}</div>
+        <div class="fb" role="status"></div>
+      </div>`, { focus: true });
+    card.querySelectorAll(".checks .opt").forEach(b => b.onclick = () => {
+      const j = +b.dataset.j, ok = j === c.correct_index;
+      if (ok) correct++;
+      card.querySelectorAll(".checks .opt").forEach(x => x.disabled = true);
+      card.querySelectorAll(".checks .opt")[c.correct_index].classList.add("correct");
+      if (!ok) b.classList.add("wrong");
+      card.querySelector(".fb").innerHTML = `<p>${ok ? '<span class="badge good">✅ Right</span>' : '<span class="badge bad">❌ Not quite</span>'}
+        ${esc(c.option_notes[j])}</p>${ok ? "" : `<p><b>${LETTERS[c.correct_index]}:</b> ${esc(c.option_notes[c.correct_index])}</p>`}
+        <div class="row"><button class="primary next">${i + 1 < total ? "Continue →" : "Finish lesson →"}</button>
+        <button class="chip" data-ask="Explain part ${i + 1} (${esc(s.heading)}) of the lesson another way, with a different example.">Explain differently</button></div>`;
+      wireChips(card);
+      const next = card.querySelector(".next");
+      next.focus();
+      next.onclick = () => { next.remove(); i + 1 < total ? showSection(i + 1) : finishLesson(); };
+    });
+  };
+
+  const finishLesson = () => {
+    const ex = L.exercise;
+    addMsg("", `<h3 style="margin:0">🧠 Key takeaways</h3><ul>${L.takeaways.map(t => `<li>${md(t)}</li>`).join("")}</ul>
+      <p class="muted">Quick checks: ${correct}/${total} right.</p>`);
+    const card = addMsg("", `
+      <h3 style="margin:0">🛠 Apply it: ${esc(ex.title)}</h3>
+      <div>${md(ex.task)}</div>
+      <ol>${ex.steps.map(s => `<li>${md(s)}</li>`).join("")}</ol>
+      ${ex.starter ? `<details><summary>Starter code</summary>${md(ex.starter)}</details>` : ""}
+      <p><b>Done when:</b></p><ul>${ex.success_criteria.map(s => `<li>${md(s)}</li>`).join("")}</ul>
+      <label class="muted" for="sol-${r.id}"><b style="color:var(--fg)">When you're done</b>, paste your code/output (or describe what you did) for a review:</label>
+      <div class="with-mic"><textarea id="sol-${r.id}" placeholder="Paste your solution, output or questions…"></textarea></div>
+      <div class="row" style="margin-top:.5rem">
+        <button class="primary review">🔍 Review my work</button>
+        ${r.slug ? `<button class="learned">✅ Mark as learned</button><button class="quiz">🎓 Quiz me to set mastery</button>` : ""}
+      </div>`, { focus: true });
+    const ta = card.querySelector("textarea");
+    card.querySelector(".with-mic").appendChild(micButton(ta, "Dictate solution"));
+    card.querySelector(".review").onclick = () => {
+      stopDictation();
+      const work = ta.value.trim();
+      if (work.length < 10) { ta.focus(); return; }
+      sendChat(`Here is my work on the exercise "${ex.title}". Review it against the success criteria: what is correct, ` +
+               `what is wrong or missing, and one concrete improvement. Don't just give me a full solution.\n\n${work}`,
+               { echo: "🔍 Review my work:\n\n" + work });
+    };
+    const learned = card.querySelector(".learned");
+    if (learned) learned.onclick = () => guarded("Saving…", async () => {
+      const res = await KG.api(`/api/lessons/${r.id}/learned`, {});
+      learned.disabled = true; learned.textContent = `✓ Mastery ${res.to}/5`;
+      await refreshGraph();
+    });
+    const quiz = card.querySelector(".quiz");
+    if (quiz) quiz.onclick = () => { setTopic(byId[r.slug]); $("nq").value = "4"; $("assess-form").requestSubmit(); };
+  };
+  showSection(0);
+}
+async function sendChat(text, { echo } = {}) {
+  if (!tutor.id) return;
+  addMsg("user", md(echo || text));
+  await guarded(["Thinking…", "Searching your books…", "Writing…"], async signal => {
+    const r = await KG.api(`/api/assessments/${tutor.id}/chat`, { message: text }, signal);
+    const d = addMsg("", md(r.reply));
+    d.insertAdjacentHTML("beforeend", `<div class="row" style="margin-top:.4rem">
+      <button class="chip" data-ask="Explain that more simply.">Simpler</button>
+      <button class="chip" data-ask="Give me a short exercise to practise this.">Practice exercise</button></div>`);
+    wireChips(d);
+  }, { cancellable: true });
+}
+$("chat-form").onsubmit = e => {
+  e.preventDefault();
+  stopDictation();
+  const text = $("chat-input").value.trim();
+  if (!text || !tutor.id) return;
+  $("chat-input").value = "";
+  sendChat(text);
+};
+$("chat-input").onkeydown = e => { if (e.key === "Enter" && !e.shiftKey && !e.ctrlKey) { e.preventDefault(); $("chat-form").requestSubmit(); } };
+const growChat = () => { const t = $("chat-input"); t.style.height = "auto"; t.style.height = Math.min(t.scrollHeight, 160) + "px"; };
+$("chat-input").addEventListener("input", growChat);
+$("chat-form").addEventListener("submit", () => setTimeout(growChat, 0));
+
+/* ---------------------------------------------------------------- voice dictation (Web Speech API) */
+const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+let speechLang = navigator.language || "en-US";
+let dictation = null;
+function micButton(textarea, label = "Dictate") {
+  const b = document.createElement("button");
+  b.type = "button"; b.className = "mic"; b.dataset.label = label; b.textContent = "🎤 " + label;
+  b.setAttribute("aria-pressed", "false");
+  b.title = "Dictate (Ctrl+Space). Check the text before submitting — technical terms are often misheard.";
+  textarea._mic = b;
+  if (!SpeechRec) { b.hidden = true; return b; }
+  b.onclick = () => (dictation && dictation.textarea === textarea) ? stopDictation() : startDictation(textarea, b);
+  return b;
+}
+function startDictation(textarea, btn) {
+  stopDictation();
+  const rec = new SpeechRec();
+  rec.lang = speechLang; rec.continuous = true; rec.interimResults = true;
+  const base = textarea.value.trim() ? textarea.value.replace(/\s*$/, " ") : "";
+  let finals = "";
+  rec.onresult = e => {
+    let interim = "";
+    for (let i = e.resultIndex; i < e.results.length; i++) {
+      const t = e.results[i][0].transcript;
+      if (e.results[i].isFinal) finals += t.trim() + " "; else interim += t;
+    }
+    textarea.value = base + finals + interim;
+    textarea.scrollTop = textarea.scrollHeight;
+  };
+  rec.onerror = e => {
+    const why = { "not-allowed": "microphone permission was denied", "no-speech": "no speech detected",
+                  "network": "the browser's speech service is unreachable (use Edge or Chrome)", "audio-capture": "no microphone found" }[e.error] || e.error;
+    KG.toast("🎤 Dictation stopped: " + esc(why), { error: true });
+  };
+  rec.onend = () => { if (dictation && dictation.rec === rec) stopDictation(); };
+  try { rec.start(); } catch (err) { KG.toast("🎤 " + esc(err.message), { error: true }); return; }
+  dictation = { rec, textarea, btn };
+  btn.setAttribute("aria-pressed", "true"); btn.textContent = "● Listening… stop";
+  textarea.focus({ preventScroll: true });
+}
+function stopDictation() {
+  if (!dictation) return;
+  const d = dictation; dictation = null;
+  d.btn.setAttribute("aria-pressed", "false"); d.btn.textContent = "🎤 " + (d.btn.dataset.label || "Dictate");
+  try { d.rec.stop(); } catch (_) {}
+}
+$("chat-mic").appendChild(micButton($("chat-input"), "Dictate"));
+$("chat-input")._mic.disabled = true;
+
+/* ---------------------------------------------------------------- resizable / collapsible side panels */
+const PANELS = {
+  left:  { cssVar: "--lw", def: 270, min: 200, max: () => 520, cls: "collapse-left", glyph: ["‹", "›"], label: "filters" },
+  right: { cssVar: "--rw", def: 460, min: 320, max: () => Math.max(340, Math.round(innerWidth * 0.65)), cls: "collapse-right", glyph: ["›", "‹"], label: "tutor" },
+};
+let panelPrefs = {};
+try { panelPrefs = JSON.parse(localStorage.getItem("kgPanels") || "{}"); } catch (_) {}
+const savePanels = () => localStorage.setItem("kgPanels", JSON.stringify(panelPrefs));
+function applyPanel(k) {
+  const p = PANELS[k], w = panelPrefs[k + "W"] ?? p.def, collapsed = !!panelPrefs[k + "Collapsed"];
+  document.body.style.setProperty(p.cssVar, (collapsed ? 0 : w) + "px");
+  document.body.classList.toggle(p.cls, collapsed);
+  const btn = document.getElementById("tg-" + k), rz = document.getElementById("rz-" + k);
+  btn.textContent = p.glyph[collapsed ? 1 : 0];
+  btn.setAttribute("aria-label", `${collapsed ? "Show" : "Hide"} ${p.label} panel`);
+  btn.setAttribute("aria-expanded", String(!collapsed));
+  rz.setAttribute("aria-valuenow", w); rz.setAttribute("aria-valuemin", p.min); rz.setAttribute("aria-valuemax", p.max());
+  rz.tabIndex = collapsed ? -1 : 0;
+}
+function setPanelWidth(k, raw, persist) {
+  const p = PANELS[k], w = Math.round(Math.min(p.max(), Math.max(p.min, raw)));
+  panelPrefs[k + "W"] = w; panelPrefs[k + "Collapsed"] = false;
+  applyPanel(k); if (persist) savePanels();
+}
+function togglePanel(k) {
+  panelPrefs[k + "Collapsed"] = !panelPrefs[k + "Collapsed"]; applyPanel(k); savePanels();
+}
+for (const k of Object.keys(PANELS)) {
+  const rz = document.getElementById("rz-" + k);
+  document.getElementById("tg-" + k).onclick = () => togglePanel(k);
+  rz.ondblclick = e => { if (!e.target.closest(".rz-btn") && !panelPrefs[k + "Collapsed"]) setPanelWidth(k, PANELS[k].def, true); };
+  rz.onpointerdown = e => {
+    if (e.target.closest(".rz-btn") || panelPrefs[k + "Collapsed"] || e.button !== 0) return;
+    e.preventDefault(); rz.setPointerCapture(e.pointerId);
+    document.body.classList.add("dragging"); rz.classList.add("active");
+    const move = ev => setPanelWidth(k, k === "left" ? ev.clientX : innerWidth - ev.clientX, false);
+    const up = () => {
+      rz.removeEventListener("pointermove", move); rz.removeEventListener("pointerup", up); rz.removeEventListener("pointercancel", up);
+      document.body.classList.remove("dragging"); rz.classList.remove("active"); savePanels();
+    };
+    rz.addEventListener("pointermove", move); rz.addEventListener("pointerup", up); rz.addEventListener("pointercancel", up);
+  };
+  rz.onkeydown = e => {
+    const cur = panelPrefs[k + "W"] ?? PANELS[k].def, dir = k === "left" ? 1 : -1;
+    if (e.key === "ArrowLeft") { e.preventDefault(); setPanelWidth(k, cur - 24 * dir, true); }
+    else if (e.key === "ArrowRight") { e.preventDefault(); setPanelWidth(k, cur + 24 * dir, true); }
+    else if (e.key === "Home") { e.preventDefault(); setPanelWidth(k, PANELS[k].def, true); }
+  };
+  applyPanel(k);
+}
+document.addEventListener("keydown", e => {
+  if (e.key !== "[" && e.key !== "]") return;
+  if (typing(e.target) || e.ctrlKey || e.metaKey || e.altKey || help.open || !shortcutsOn()) return;
+  e.preventDefault(); togglePanel(e.key === "[" ? "left" : "right");
+});
+/* vis-network only listens to window resizes, so tell it when its own box changes (panels, focus mode) */
+let resizeQueued = false;
+new ResizeObserver(() => {
+  if (resizeQueued) return;
+  resizeQueued = true;
+  requestAnimationFrame(() => {
+    resizeQueued = false;
+    const el = document.getElementById("graph");
+    if (el.clientWidth > 0) { network.setSize(el.clientWidth + "px", el.clientHeight + "px"); network.redraw(); }
+  });
+}).observe(document.getElementById("graph"));
+
+/* ---------------------------------------------------------------- boot */
+(async () => {
+  const params = new URLSearchParams(location.search);
+  const focus = params.get("focus");
+  if (focus && byId[focus]) setTimeout(() => { focusNode(focus); network.once("stabilized", () => focusNode(focus)); }, 300);
+  if (!KG.served()) return;
+  try {
+    const h = await KG.api("/api/health");
+    $("nav").classList.remove("hidden");
+    speechLang = h.speech_lang || speechLang;
+    $("tutor-offline").classList.add("hidden"); $("tutor-app").classList.remove("hidden");
+    $("tutor-status").textContent = `Copilot · ${h.model} · ${h.books} book(s)`;
+    if (![...$("nq").options].some(o => o.value === String(h.questions))) $("nq").add(new Option(h.questions, h.questions));
+    $("nq").value = String(h.questions);
+  } catch (e) { return; }
+  const n = params.get("n"), assess = params.get("assess"), review = params.get("review"), learn = params.get("learn");
+  if (n) { if (![...$("nq").options].some(o => o.value === n)) $("nq").add(new Option(n, n)); $("nq").value = n; }
+  if (learn && byId[learn]) { switchTab("tutor"); setTopic(byId[learn]); focusNode(learn, { scroll: false }); switchTab("tutor"); startLesson(learn); }
+  else if (assess && byId[assess]) { switchTab("tutor"); setTopic(byId[assess]); focusNode(assess, { scroll: false }); switchTab("tutor"); $("assess-form").requestSubmit(); }
+  else if (review) {
+    const slugs = review.split(",").filter(s => byId[s]);
+    if (slugs.length) {
+      switchTab("tutor"); tutor.slugs = slugs; tutor.slug = null;
+      $("topic").value = "Mixed review: " + slugs.map(s => byId[s].title).join(", ");
+      document.body.classList.add("focus-mode"); $("focus-btn").setAttribute("aria-pressed", "true"); $("focus-btn").textContent = "⛶ Exit focus";
+      $("assess-form").requestSubmit();
+    }
+  }
+  if (assess || review || learn) history.replaceState(null, "", "/graph");
+})();
+</script>
+</body>
+</html>
