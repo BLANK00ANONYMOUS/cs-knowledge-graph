@@ -82,7 +82,14 @@ Sweller's cognitive-load work, Shneiderman's visualisation mantra, NN/g, WCAG 2.
 | Responsiveness | Named loading stages, elapsed time, **Cancel** for long waits; follow-up chips (*Explain simpler*, *Another example*, *Improve my reasoning*, *💡 Hint*) |
 | Accessibility | WCAG-contrast light/dark/auto themes, visible focus rings, ≥32 px targets, `aria-live` feedback, colour-blind-safe Okabe–Ito palette + shapes/pips/dashed rings, `prefers-reduced-motion`, keyboard shortcuts (`1`–`4`, `Ctrl+Enter`, `/`, `Esc`, `?`) that can be switched off |
 
-**Layout:** on the Graph page drag the edge of the left (filters) or right (details/tutor) panel to resize it, click
+**Look & feel:** a calm "ink" design — near-black neutrals, a warm gold accent, serif headings, small monospace
+uppercase labels. Questions are *prediction cards*: bordered options (plus **I don't know**), a **confidence slider**
+set before the answer is revealed, and a **Your thinking** box (`Enter` submits). The graph is a dim starfield with soft
+domain glows; labels appear as you zoom in or hover. Selecting a concept shows a **lesson map** of its prerequisites
+(green = mastered, amber = in progress, red = to learn). Pick a theme with the button in the corner: Auto, Ink, Paper,
+Mocha, Rosé Pine or Gruvbox (tokens live in `tools/common.css`).
+
+**Layout:** on the Graph page drag the edge of the left (concepts) or right (details/tutor) panel to resize it, click
 the ‹ › button on the edge (or press `[` / `]`) to hide/show it, double-click an edge (or `Home`) to reset. Sizes are
 remembered. While a quiz question is open only its own 🎤 button is shown.
 

@@ -1,8 +1,12 @@
 /* Shared helpers for every page (inlined by the server / kg build). */
 (function () {
-  const saved = localStorage.getItem("kgTheme");
-  if (saved === "light" || saved === "dark") document.documentElement.dataset.theme = saved;
+  const old = { dark: "ink", light: "paper" };   // values saved by earlier versions
+  let saved = localStorage.getItem("kgTheme");
+  if (old[saved]) { saved = old[saved]; localStorage.setItem("kgTheme", saved); }
+  if (saved && saved !== "auto") document.documentElement.dataset.theme = saved;
 })();
+
+const THEMES = [["auto", "🌓 Auto"], ["ink", "🌑 Ink"], ["paper", "📜 Paper"], ["mocha", "🌸 Mocha"], ["rose", "🌹 Rosé Pine"], ["gruvbox", "🟠 Gruvbox"]];
 
 const KG = {
   esc: s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])),
@@ -19,14 +23,14 @@ const KG = {
     return j;
   },
 
-  /* theme: auto (follows OS) → light → dark */
+  /* theme: auto (follows OS) → ink → paper → mocha → rosé pine → gruvbox */
   themeLabel() {
     const t = localStorage.getItem("kgTheme") || "auto";
-    return { auto: "🌓 Auto", light: "☀️ Light", dark: "🌙 Dark" }[t];
+    return (THEMES.find(x => x[0] === t) || THEMES[0])[1];
   },
   cycleTheme() {
-    const order = ["auto", "light", "dark"];
-    const next = order[(order.indexOf(localStorage.getItem("kgTheme") || "auto") + 1) % 3];
+    const ids = THEMES.map(x => x[0]);
+    const next = ids[(ids.indexOf(localStorage.getItem("kgTheme") || "auto") + 1) % ids.length];
     if (next === "auto") { localStorage.removeItem("kgTheme"); delete document.documentElement.dataset.theme; }
     else { localStorage.setItem("kgTheme", next); document.documentElement.dataset.theme = next; }
     document.dispatchEvent(new CustomEvent("kg-theme"));

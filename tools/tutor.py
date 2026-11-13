@@ -487,17 +487,24 @@ class Tutor:
             q = a.current
             if q is None:
                 raise TutorError("no open question")
-            if not 0 <= choice < 4:
-                raise TutorError("choice must be 0-3")
+            if not -1 <= choice < 4:   # -1 = "I don't know"
+                raise TutorError("choice must be -1 (I don't know) or 0-3")
             reasoning = (reasoning or "").strip()[:4000]
+            dont_know = choice == -1
+            if dont_know:
+                confidence = "guess"
             correct = choice == q.correct_index
             idx = len(a.answers) + 1
             last = idx >= a.total
             confident_wrong = confidence == "sure" and not correct
+            picked = ("the learner said \"I don't know\" (no option chosen), which counts as INCORRECT" if dont_know else
+                      f"the learner chose {LETTERS[choice]} (\"{q.options[choice]}\"), which is "
+                      f"{'CORRECT' if correct else 'INCORRECT'}")
             prompt = (
-                f"Question {idx}: the learner chose {LETTERS[choice]} (\"{q.options[choice]}\"), which is "
-                f"{'CORRECT' if correct else 'INCORRECT'} (correct: {LETTERS[q.correct_index]}). "
+                f"Question {idx}: {picked} (correct: {LETTERS[q.correct_index]}). "
                 f"Self-reported confidence before seeing the answer: {CONFIDENCE[confidence].upper()}."
+                + (" Be encouraging: not knowing is useful information. Say what the first step of the reasoning is, "
+                   "and what prerequisite idea to revisit." if dont_know else "")
                 + (" This is a high-confidence error: name the misconception precisely — these are the most "
                    "correctable (hypercorrection effect)." if confident_wrong else "")
                 + (" Correct but only guessing: say what knowledge would make it certain." if correct and

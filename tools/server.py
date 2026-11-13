@@ -139,7 +139,7 @@ async def answer(request: web.Request) -> web.Response:
     try:
         choice = int(d.get("choice"))
     except (TypeError, ValueError):
-        raise TutorError("choice must be 0-3")
+        raise TutorError("choice must be -1 (I don't know) or 0-3")
     return web.json_response(await tutor(request).answer(
         request.match_info["id"], choice, d.get("reasoning", ""), str(d.get("confidence") or "think")))
 

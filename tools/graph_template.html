@@ -106,6 +106,64 @@
   .thinking { display:flex; gap:.6rem; align-items:center; justify-content:center; }
   .spinner { width:.9rem; height:.9rem; border:2px solid var(--border); border-top-color:var(--accent); border-radius:50%; animation:spin .8s linear infinite; }
   @keyframes spin { to { transform:rotate(360deg); } }
+  /* ---- Ink look: serif titles, mono labels, calm cards ---- */
+  aside { padding:1rem 1rem; }
+  h1 { font-family:var(--font-serif); font-weight:500; }
+  #left h1 { font-size:1.15rem; margin:.6rem 0 .2rem; }
+  h2 { font:.6875rem var(--font-mono); letter-spacing:.1em; text-transform:uppercase; color:var(--muted); margin:1rem 0 .4rem; }
+  #left input[type=search] { border-radius:10px; }
+  #left details.fold > summary { font:.6875rem var(--font-mono); letter-spacing:.1em; text-transform:uppercase; color:var(--muted); cursor:pointer; padding:.5rem 0; list-style:none; }
+  #left details.fold > summary::before { content:"▸ "; } #left details.fold[open] > summary::before { content:"▾ "; }
+  #left details.fold > summary:hover { color:var(--fg); }
+  .clist { list-style:none; margin:0; padding:0; overflow:auto; flex:1; min-height:6rem; }
+  .clist li button { display:flex; flex-direction:column; align-items:flex-start; gap:.05rem; width:100%; text-align:left; background:transparent; border:0; border-radius:10px;
+                     padding:.5rem .6rem; min-height:2.5rem; }
+  .clist li button:hover, .clist li button[aria-current="true"] { background:var(--panel2); }
+  .clist .t { font-size:.9375rem; line-height:1.25; }
+  .clist .m { font:.6875rem var(--font-mono); color:var(--muted); letter-spacing:.03em; }
+  .clist .m.due { color:var(--accent); } .clist .m.ready { color:var(--good); }
+  .tabs [role=tab] { font:.6875rem var(--font-mono); letter-spacing:.1em; text-transform:uppercase; }
+  #tutor-status { font:.6875rem var(--font-mono); letter-spacing:.04em; color:var(--muted); }
+  #details h1 { font-size:1.6rem; line-height:1.15; margin:.2rem 0 .5rem; }
+  .next-level { border-radius:10px; border:1px solid var(--border); border-left:3px solid var(--accent); }
+  .chip.static { cursor:default; font:.6875rem var(--font-mono); letter-spacing:.04em; }
+  .chip.static:hover { border-color:var(--border); }
+  /* prediction card */
+  .msg { border-radius:14px; }
+  .msg.pcard { background:var(--panel); padding:1rem 1.1rem 1.1rem; max-width:none; border-radius:18px; }
+  .qtext { font-family:var(--font-serif); font-size:1.15rem; line-height:1.5; margin:.35rem 0 .8rem; }
+  .opt { border-radius:12px; padding:.65rem .8rem; background:var(--panel); gap:.7rem; align-items:center; }
+  .opt input { appearance:none; width:1.05rem; height:1.05rem; min-width:1.05rem; border:1.5px solid var(--muted); border-radius:50%; margin:0; display:grid; place-content:center; }
+  .opt input::before { content:""; width:.5rem; height:.5rem; border-radius:50%; background:var(--accent); transform:scale(0); transition:transform .12s; }
+  .opt input:checked { border-color:var(--accent); } .opt input:checked::before { transform:scale(1); }
+  .opt:has(input:checked) { border-color:var(--accent); background:var(--accent-bg); }
+  .opt .key { font:600 .75rem var(--font-mono); color:var(--muted); min-width:1rem; }
+  .opt.idk { border-style:dashed; background:transparent; color:var(--muted); }
+  .opt.idk:has(input:checked) { color:var(--fg); }
+  .opt.correct { box-shadow:0 0 18px -6px var(--good); } .opt.wrong { box-shadow:0 0 18px -6px var(--bad); }
+  .conf { display:grid; grid-template-columns:auto 1fr auto; gap:.8rem; align-items:center; padding:.7rem .2rem; border-top:1px solid var(--border); margin-top:.6rem; }
+  .conf input[type=range] { width:100%; margin:0; }
+  .conf-val { min-width:8.5rem; text-align:right; font-size:.75rem; color:var(--muted); } .conf-val.set { color:var(--accent); }
+  .think { border:1px solid var(--border); border-radius:14px; padding:.7rem .8rem .6rem; background:var(--bg); }
+  .think textarea { border:0; background:transparent; padding:.3rem 0; min-height:5.5rem; resize:vertical; outline:none; }
+  .think:focus-within { border-color:var(--muted); }
+  .think-bar { display:flex; align-items:center; gap:.5rem; margin-top:.3rem; flex-wrap:wrap; }
+  .think-bar .grow { flex:1; }
+  .think-bar .mic, .think-bar .hint-btn { min-height:2rem; padding:.2rem .65rem; font-size:.8125rem; }
+  .think-bar .hint { font-size:.6875rem; }
+  .verdict .badge, .qhead .eyebrow { font-family:var(--font-mono); }
+  /* lesson map (prerequisite map with mastery glow) */
+  .lmap { width:100%; height:auto; border:1px solid var(--border); border-radius:14px; background:var(--bg); display:block; }
+  .lmap .box { fill:var(--panel); stroke:var(--fg); stroke-opacity:.55; stroke-width:1; }
+  .lmap .box.good { fill:var(--good-bg); stroke:var(--good); filter:drop-shadow(0 0 7px var(--good)); stroke-opacity:1; }
+  .lmap .box.bad { fill:var(--bad-bg); stroke:var(--bad); filter:drop-shadow(0 0 7px var(--bad)); stroke-opacity:1; }
+  .lmap .box.mid { stroke:var(--accent); stroke-opacity:.9; }
+  .lmap .box.focus { stroke:var(--accent); stroke-width:2; }
+  .lmap text { fill:var(--fg); font:11px system-ui, sans-serif; text-anchor:middle; pointer-events:none; }
+  .lmap .edge { fill:none; stroke:var(--fg); stroke-opacity:.5; stroke-width:1.1; marker-end:url(#arr); }
+  .lmap g.node { cursor:pointer; } .lmap g.node:focus-visible rect { stroke:var(--accent); stroke-width:2; }
+  .lmap-legend { display:flex; gap:1rem; flex-wrap:wrap; font:.6875rem var(--font-mono); color:var(--muted); margin:.4rem 0 0; }
+  .lmap-legend i { display:inline-block; width:.7rem; height:.7rem; border-radius:3px; margin-right:.3rem; vertical-align:-1px; border:1px solid currentColor; }
   /* focus mode: hide graph + filters during a quiz */
   body.focus-mode { grid-template-columns: 1fr; grid-template-rows: 100vh; }
   body.focus-mode #left, body.focus-mode #graph { display:none; }
@@ -129,24 +187,29 @@
   <nav class="appnav hidden" id="nav" aria-label="Main">
     <a href="/">🏠 Today</a><a href="/graph" aria-current="page">🧠 Graph</a><a href="/build">🛠 Build</a><a href="/arena">🏁 Challenges</a>
   </nav>
-  <h1>🧠 Knowledge Graph</h1>
+  <h1>Knowledge Graph</h1>
   <label for="q" class="sr-only">Search concepts</label>
-  <input id="q" type="search" placeholder="Search… (/), Enter to focus" autocomplete="off">
-  <h2 id="hl-h">Highlight</h2>
-  <select id="highlight" aria-labelledby="hl-h">
-    <option value="">Everything</option>
-    <option value="ready">🌱 Ready to learn</option>
-    <option value="due">🔁 Due for review</option>
-    <option value="gaps">🕳 Gaps (mastery 1–2)</option>
-    <option value="mastered">✅ Mastered (≥ 3)</option>
-    <option value="practiced">🛠 Practiced in projects</option>
-  </select>
-  <h2>Domains</h2><div id="domains"></div>
-  <h2>Show</h2><div id="types"></div>
-  <h2>Connections</h2><div id="edges"></div>
-  <h2>Layout</h2>
-  <div class="row"><button id="layout-force">Network</button><button id="layout-tree">Prerequisite tree</button></div>
-  <details id="legend">
+  <input id="q" type="search" placeholder="Search concepts…  ( / )" autocomplete="off">
+  <h2 id="cl-h">Concepts</h2>
+  <ul class="clist" id="clist" aria-labelledby="cl-h"></ul>
+  <details class="fold" id="filters">
+    <summary>Filters &amp; layout</summary>
+    <h2 id="hl-h">Highlight</h2>
+    <select id="highlight" aria-labelledby="hl-h">
+      <option value="">Everything</option>
+      <option value="ready">🌱 Ready to learn</option>
+      <option value="due">🔁 Due for review</option>
+      <option value="gaps">🕳 Gaps (mastery 1–2)</option>
+      <option value="mastered">✅ Mastered (≥ 3)</option>
+      <option value="practiced">🛠 Practiced in projects</option>
+    </select>
+    <h2>Domains</h2><div id="domains"></div>
+    <h2>Show</h2><div id="types"></div>
+    <h2>Connections</h2><div id="edges"></div>
+    <h2>Layout</h2>
+    <div class="row"><button id="layout-force">Network</button><button id="layout-tree">Prerequisite tree</button></div>
+  </details>
+  <details id="legend" class="fold">
     <summary>Legend</summary>
     <dl>
       <dt>●</dt><dd>Concept — bigger = higher mastery; ●●○ pips under the name</dd>
@@ -157,7 +220,7 @@
       <dt>→</dt><dd>Arrow from prerequisite to what it unlocks</dd>
       <dt>⇢</dt><dd>Dashed green — practised in a project</dd>
     </dl>
-    <p class="muted">Colours use the colour-blind-safe Okabe–Ito palette; shapes and labels carry the same information.</p>
+    <p class="muted">Soft glows mark each domain. Colours use the colour-blind-safe Okabe–Ito palette; shapes and labels carry the same information. Zoom in to read every label.</p>
   </details>
   <p class="muted" id="stats" aria-live="polite"></p>
   <div class="row" style="margin-top:auto"><button id="theme" class="ghost"></button><button id="help-btn" class="ghost" aria-haspopup="dialog">⌨ Shortcuts</button></div>
@@ -203,9 +266,9 @@
           </ul>
           <p><b>In a quiz</b></p>
           <ol style="margin:.3rem 0 0;padding-left:1.2rem">
-            <li>Pick an answer — keys <kbd>1</kbd>–<kbd>4</kbd> work when the question is focused.</li>
-            <li>Say how sure you are <i>before</i> you see the answer. Confident mistakes are the most valuable to catch.</li>
-            <li>Explain <i>why</i> — type or 🎤 dictate. Explaining is what makes it stick.</li>
+            <li>Pick an answer — keys <kbd>1</kbd>–<kbd>4</kbd> work when the question is focused — or “I don't know”.</li>
+            <li>Set your confidence <i>before</i> you see the answer. Confident mistakes are the most valuable to catch.</li>
+            <li>Write (or 🎤 dictate) your thinking. <kbd>Enter</kbd> submits, <kbd>Shift</kbd>+<kbd>Enter</kbd> adds a line.</li>
           </ol>
           <p class="muted" style="margin-top:.5rem">Then you get a study plan from your books, and suggested mastery you can apply to the graph.</p>
         </div>
@@ -228,7 +291,7 @@
     <tr><td><kbd>[</kbd> / <kbd>]</kbd></td><td>Hide / show the left filters panel / the right tutor panel</td></tr>
     <tr><td>Drag a panel edge</td><td>Resize it (double-click or <kbd>Home</kbd> resets; arrow keys when focused)</td></tr>
     <tr><td><kbd>1</kbd>–<kbd>4</kbd> / <kbd>A</kbd>–<kbd>D</kbd></td><td>Choose an option (while the question card is focused)</td></tr>
-    <tr><td><kbd>Ctrl</kbd>+<kbd>Enter</kbd></td><td>Submit your answer</td></tr>
+    <tr><td><kbd>Enter</kbd></td><td>Submit your answer from the “Your thinking” box (<kbd>Shift</kbd>+<kbd>Enter</kbd> = new line)</td></tr>
     <tr><td><kbd>Ctrl</kbd>+<kbd>Space</kbd></td><td>Start/stop dictation in a text box</td></tr>
     <tr><td><kbd>Enter</kbd> / <kbd>Shift</kbd>+<kbd>Enter</kbd></td><td>Send chat / new line</td></tr>
     <tr><td><kbd>?</kbd></td><td>This help</td></tr>
@@ -312,6 +375,31 @@ const settle = () => { if (!state.tree && physicsRunning) { network.setOptions({
 network.on("stabilizationIterationsDone", settle);
 network.on("stabilized", settle);
 
+/* Starfield look: dim edges, soft domain glows behind the nodes, labels appear as you zoom in (or hover / focus). */
+let labelsOn = true, hovered = null, labelTimer = null;
+const LABEL_SCALE = 0.75;
+network.on("afterDrawing", () => {
+  const on = network.getScale() >= LABEL_SCALE;
+  if (on !== labelsOn && !labelTimer) labelTimer = setTimeout(() => { labelTimer = null; labelsOn = network.getScale() >= LABEL_SCALE; render(); }, 60);
+});
+network.on("hoverNode", p => { hovered = p.node; if (!labelsOn && byId[p.node]) nodes.update({ id: p.node, label: byId[p.node].title }); });
+network.on("blurNode", p => { hovered = null; if (!labelsOn && p.node !== state.focus) nodes.update({ id: p.node, label: "" }); });
+network.on("beforeDrawing", ctx => {
+  const pos = network.getPositions(), byDomain = {};
+  for (const id of nodes.getIds()) {
+    const n = byId[id]; if (!n || !pos[id] || n.type !== "concept") continue;
+    (byDomain[n.domain] ||= []).push(pos[id]);
+  }
+  for (const [d, pts] of Object.entries(byDomain)) {
+    if (pts.length < 3) continue;
+    const cx = pts.reduce((s, p) => s + p.x, 0) / pts.length, cy = pts.reduce((s, p) => s + p.y, 0) / pts.length;
+    const r = Math.max(120, Math.sqrt(pts.reduce((s, p) => s + (p.x - cx) ** 2 + (p.y - cy) ** 2, 0) / pts.length) * 1.7);
+    const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, r), col = COLORS[d] || COLORS.meta;
+    g.addColorStop(0, col + "26"); g.addColorStop(1, col + "00");
+    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.fill();
+  }
+});
+
 function visible(n) { return state.domains.has(n.domain) && state.types.has(n.type); }
 function render() {
   const q = state.query.toLowerCase();
@@ -331,16 +419,17 @@ function render() {
     const work = ["project", "contribution", "challenge"].includes(n.type);
     const ready = isReady(n), dim = dimmed(n) && !hit;
     const pips = n.type === "concept" && n.mastery > 0 ? "\n" + "●".repeat(n.mastery) + "○".repeat(5 - n.mastery) : "";
+    const labelled = labelsOn || hit || n.id === state.focus || (fset && fset.has(n.id)) || n.id === hovered;
     return {
-      id: n.id, label: n.title + pips, level: n.depth,
-      size: n.type === "roadmap" ? 26 : n.type === "book" ? 18 : work ? 13 : 9 + n.mastery * 3,
+      id: n.id, label: labelled ? n.title + pips : "", level: n.depth,
+      size: n.type === "roadmap" ? 17 : n.type === "book" ? 11 : work ? 8 : 5.5 + n.mastery * 2.4,
       shape: { roadmap: "star", book: "square", project: "diamond", contribution: "triangle", challenge: "hexagon" }[n.type] || "dot",
       color: { background: c, border: hit || n.id === state.focus ? fg : n.due ? accent : ready ? warn : c,
                highlight: { background: c, border: fg }, hover: { background: c, border: fg } },
       shapeProperties: { borderDashes: n.due ? [4, 3] : false },
-      borderWidth: hit || n.id === state.focus ? 5 : n.due || ready ? 3 : 1,
-      opacity: dim ? 0.15 : (n.mastery === 0 && n.type === "concept") || (work && ["idea", "planned"].includes(n.status)) ? 0.65 : 1,
-      font: { color: dim ? KG.cssVar("--muted") : fg, strokeColor: bg },
+      borderWidth: hit || n.id === state.focus ? 4 : n.due || ready ? 2.5 : 1,
+      opacity: dim ? 0.15 : (n.mastery === 0 && n.type === "concept") || (work && ["idea", "planned"].includes(n.status)) ? 0.7 : 1,
+      font: { size: 12, color: dim ? KG.cssVar("--muted") : fg, strokeColor: bg, strokeWidth: 3 },
       title: `${n.title}\n${n.summary || ""}\n` + (work ? `${n.type} · ${n.status}` : `mastery ${n.mastery}/5 — ${MASTERY_TEXT[n.mastery]}`)
              + (n.due ? "\n🔁 due for review" : "") + (ready ? "\n🌱 ready to learn" : ""),
     };
@@ -352,7 +441,7 @@ function render() {
     const onPath = path && e.kind === "prereq" && (path.has(e.from) || e.from === state.focus) && (path.has(e.to) || e.to === state.focus);
     const dim = (fset && !(fset.has(e.from) && fset.has(e.to))) || (hl && !(hl(byId[e.from]) && hl(byId[e.to])));
     return { id: i, from: e.from, to: e.to, dashes: s.dashes, arrows: s.arrows, width: onPath ? 3 : 1.2,
-             color: { color: onPath ? accent : s.color, opacity: dim ? 0.08 : 0.85 } };
+             color: { color: onPath ? accent : s.color, opacity: dim ? 0.06 : onPath ? 0.95 : 0.5 } };
   }));
   if (added && !state.tree && !physicsRunning) {
     physicsRunning = true;
@@ -362,6 +451,60 @@ function render() {
   document.getElementById("stats").textContent =
     `${cs.length} concepts · ${cs.filter(n => n.mastery >= 3).length} mastered · ${cs.filter(isReady).length} ready · ` +
     `${cs.filter(n => n.due).length} due`;
+  renderList();
+}
+/* Sidebar: concepts ordered by what to do next — due, ready, in progress, the rest, then mastered. */
+function renderList() {
+  const q = state.query.toLowerCase();
+  const rank = n => n.due ? 0 : isReady(n) ? 1 : n.mastery >= 1 && n.mastery < 3 ? 2 : n.mastery >= 3 ? 4 : 3;
+  const items = GRAPH.nodes.filter(n => n.type === "concept" && state.domains.has(n.domain)
+      && (!q || n.title.toLowerCase().includes(q) || n.id.includes(q) || n.tags.some(t => t.includes(q))))
+    .sort((a, b) => rank(a) - rank(b) || a.depth - b.depth || a.title.localeCompare(b.title));
+  const meta = n => n.due ? ["due", "due for review"] : isReady(n) ? ["ready", "ready to learn"]
+    : n.mastery >= 3 ? ["", "mastered"] : n.mastery >= 1 ? ["", "in progress"] : ["", "locked"];
+  const list = document.getElementById("clist");
+  list.innerHTML = items.length ? items.map(n => {
+    const [cls, label] = meta(n);
+    return `<li><button type="button" data-id="${esc(n.id)}" aria-current="${n.id === state.focus}">
+      <span class="t">${esc(n.title)}</span>
+      <span class="m ${cls}"><span class="dot" style="background:${COLORS[n.domain]}" aria-hidden="true"></span> ${esc(n.domain)} · ${label} · ${n.mastery}/5</span></button></li>`;
+  }).join("") : '<li class="muted" style="padding:.5rem">No concepts match.</li>';
+  list.querySelectorAll("[data-id]").forEach(b => b.onclick = () => focusNode(b.dataset.id));
+}
+/* Lesson map: the prerequisite chain of a concept as boxes, layered, with a glow showing mastery. */
+function lessonMap(id) {
+  const anc = ancestors(id);
+  if (!anc.size) return '<p class="muted">No prerequisites — a good place to start.</p>';
+  const ids = [id, ...[...anc].sort((a, b) => byId[a].depth - byId[b].depth)].slice(0, 26);
+  const set = new Set(ids), layers = {};
+  ids.forEach(i => (layers[byId[i].depth] ||= []).push(i));
+  const keys = Object.keys(layers).map(Number).sort((a, b) => a - b);
+  const BW = 132, BH = 46, GX = 18, GY = 46;
+  const widest = Math.max(...keys.map(k => layers[k].length));
+  const W = widest * (BW + GX) + GX, H = keys.length * (BH + GY) + GY - 10, pos = {};
+  keys.forEach((k, row) => {
+    const cnt = layers[k].length, x0 = (W - (cnt * (BW + GX) - GX)) / 2;
+    layers[k].forEach((i, c) => { pos[i] = { x: x0 + c * (BW + GX), y: GY / 2 + row * (BH + GY) }; });
+  });
+  const wrap = t => {
+    const words = t.replace(/\s*\(.*?\)\s*/g, " ").trim().split(/\s+/), lines = [""];
+    for (const w of words) { const l = lines[lines.length - 1]; if ((l + " " + w).trim().length <= 19) lines[lines.length - 1] = (l + " " + w).trim(); else lines.push(w); }
+    return lines.length > 2 ? [lines[0], lines[1].slice(0, 17) + "…"] : lines;
+  };
+  const edgesSvg = GRAPH.edges.filter(e => e.kind === "prereq" && set.has(e.from) && set.has(e.to)).map(e => {
+    const a = pos[e.from], b = pos[e.to], x1 = a.x + BW / 2, y1 = a.y + BH, x2 = b.x + BW / 2, y2 = b.y, my = (y1 + y2) / 2;
+    return `<path class="edge" d="M${x1},${y1} C${x1},${my} ${x2},${my} ${x2},${y2 - 2}"/>`;
+  }).join("");
+  const boxes = ids.map(i => {
+    const n = byId[i], p = pos[i], cls = n.mastery >= 3 ? "good" : n.mastery >= 1 ? "mid" : "bad", ls = wrap(n.title);
+    return `<g class="node" data-id="${esc(i)}" tabindex="0" role="button" aria-label="${esc(n.title)}, mastery ${n.mastery} of 5">
+      <rect class="box ${cls}${i === id ? " focus" : ""}" x="${p.x}" y="${p.y}" width="${BW}" height="${BH}" rx="5"/>
+      ${ls.map((l, k) => `<text x="${p.x + BW / 2}" y="${p.y + BH / 2 + (k - (ls.length - 1) / 2) * 13 + 4}">${esc(l)}</text>`).join("")}</g>`;
+  }).join("");
+  return `<svg class="lmap" viewBox="0 0 ${W} ${H}" role="group" aria-label="Prerequisite map">
+    <defs><marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M1,1 L9,5 L1,9" fill="none" stroke="currentColor" style="stroke:var(--fg);stroke-opacity:.7" stroke-width="1.4"/></marker></defs>
+    ${edgesSvg}${boxes}</svg>
+    <div class="lmap-legend"><span style="color:var(--good)"><i></i>mastered</span><span style="color:var(--accent)"><i></i>in progress</span><span style="color:var(--bad)"><i></i>to learn</span></div>`;
 }
 function applyLayout() {
   physicsRunning = !state.tree;
@@ -418,6 +561,7 @@ function showDetails(id) {
         ${n.type === "challenge" ? `<a class="chip" href="/arena#${esc(n.id)}">🏁 Open challenge</a>` : ""}
         <button class="ghost" data-act="clear">Show everything</button></div>`}
     ${work ? `<h2>Practises</h2>${pills(linked(id, "practices"))}` : `
+      ${n.type === "concept" ? `<h2>Lesson map</h2>${lessonMap(id)}` : ""}
       <h2>Prerequisites (learn first)</h2>${pills(pre)}
       <h2>Unlocks</h2>${pills(dependentsOf(id))}
       <h2>Related</h2>${pills(linked(id, "related"))}
@@ -425,6 +569,10 @@ function showDetails(id) {
     ${linked(id, "covers").length ? `<h2>Books</h2>${pills(linked(id, "covers"))}` : ""}
     <h2>File</h2><code>${esc(n.path)}</code>`;
   el.querySelectorAll("[data-id]").forEach(p => p.onclick = () => focusNode(p.dataset.id));
+  el.querySelectorAll(".lmap g.node").forEach(g => {
+    g.onclick = () => focusNode(g.dataset.id);
+    g.onkeydown = e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); focusNode(g.dataset.id); } };
+  });
   el.querySelectorAll("[data-act]").forEach(b => b.onclick = () => {
     if (b.dataset.act === "clear") return clearFocus();
     switchTab("tutor");
@@ -554,34 +702,47 @@ $("assess-form").onsubmit = e => {
 
 function renderQuestion(q) {
   const qid = "q" + q.index + "-" + Date.now();
-  const card = addMsg("", `
-    <div class="qhead"><b>Question ${q.index} of ${q.total}</b>
-      <span class="badge">${esc(byId[q.concept] ? byId[q.concept].title : q.concept || "general")}</span>
-      <span class="badge">${esc(q.difficulty)}</span><span class="badge">${esc(q.skill)}</span></div>
+  const card = addMsg("pcard", `
+    <div class="qhead"><span class="eyebrow">Question ${q.index} / ${q.total}</span>
+      <span class="chip static">${esc(byId[q.concept] ? byId[q.concept].title : q.concept || "general")}</span>
+      <span class="chip static">${esc(q.difficulty)}</span><span class="chip static">${esc(q.skill)}</span></div>
     <div class="meter qprogress" role="progressbar" aria-label="Session progress" aria-valuenow="${q.index - 1}" aria-valuemax="${q.total}"><div style="width:${100 * (q.index - 1) / q.total}%"></div></div>
-    <div id="${qid}">${md(q.question)}</div>
+    <div class="eyebrow" style="margin-top:.2rem">Prediction</div>
+    <div id="${qid}" class="qtext">${md(q.question)}</div>
     <form>
       <fieldset><legend class="sr-only">Options</legend>
         ${q.options.map((o, i) => `<label class="opt"><input type="radio" name="c" value="${i}"><span class="key">${LETTERS[i]}</span><span>${md(o)}</span></label>`).join("")}
+        <label class="opt idk"><input type="radio" name="c" value="-1"><span class="key">?</span><span>I don't know</span></label>
       </fieldset>
-      <fieldset><legend>How sure are you? <span class="muted">(before you see the answer)</span></legend>
-        <div class="seg">${Object.entries(CONF).map(([k, v]) => `<label><input type="radio" name="conf" value="${k}"><span>${v}</span></label>`).join("")}</div>
-      </fieldset>
-      <label class="muted" for="${qid}-why" style="display:block;margin-top:.5rem"><b style="color:var(--fg)">Why this option — and why not the others?</b>
-        Full marks need the mechanism, not just the fact.</label>
-      <div class="with-mic"><textarea id="${qid}-why" name="why" placeholder="Type or dictate your reasoning…"></textarea></div>
-      <div class="row" style="margin-top:.5rem">
-        <button class="primary">Submit <span class="muted" style="color:inherit;opacity:.8">Ctrl+Enter</span></button>
-        <button type="button" class="ghost hint-btn">💡 Hint</button>
-        <span class="muted hint" role="status"></span>
+      <div class="conf" role="group" aria-label="Confidence, set before you see the answer">
+        <span class="eyebrow">Confidence</span>
+        <input type="range" name="conf" min="0" max="100" step="1" value="50" aria-label="How sure are you, in percent">
+        <span class="conf-val mono" aria-live="off">tap to set</span>
+      </div>
+      <div class="think">
+        <label class="eyebrow" for="${qid}-why">Your thinking <span style="text-transform:none;letter-spacing:0">— why this option, and why not the others?</span></label>
+        <div class="with-mic"><textarea id="${qid}-why" name="why" placeholder="Why this answer? Whatever comes to mind."></textarea></div>
+        <div class="think-bar">
+          <span class="muted mono hint" role="status">↵ submits · ⇧↵ newline</span>
+          <span class="grow"></span>
+          <button type="button" class="ghost hint-btn">💡 Hint</button>
+          <button class="primary submit">Submit answer</button>
+        </div>
       </div>
     </form>`);
   card.setAttribute("role", "group"); card.setAttribute("aria-labelledby", qid);
   card.tabIndex = -1; card.focus({ preventScroll: true });
-  const form = card.querySelector("form");
-  form.querySelector(".with-mic").appendChild(micButton(form.why, "Dictate answer"));
+  const form = card.querySelector("form"), slider = form.elements.conf, confVal = form.querySelector(".conf-val");
+  const confLevel = v => v < 34 ? "guess" : v < 67 ? "think" : "sure";
+  let touched = false;
+  const showConf = () => { confVal.textContent = touched ? `${slider.value}% · ${CONF[confLevel(+slider.value)].replace(/^\S+\s/, "")}` : "tap to set"; confVal.classList.toggle("set", touched); };
+  slider.addEventListener("input", () => { touched = true; showConf(); });
+  slider.addEventListener("pointerdown", () => { touched = true; showConf(); });
+  form.querySelectorAll("input[name=c]").forEach(r => r.addEventListener("change", () => form.querySelector(".hint").textContent = "↵ submits · ⇧↵ newline"));
+  form.querySelector(".think-bar").insertBefore(micButton(form.why, "Dictate"), form.querySelector(".hint-btn"));
   document.body.classList.add("q-open");
   form.querySelector(".hint-btn").onclick = () => sendChat("Give me a hint for the current question without revealing the answer.", { echo: "💡 Hint please" });
+  form.why.addEventListener("keydown", e => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); form.requestSubmit(); } });
   card.addEventListener("keydown", e => {
     if (e.ctrlKey && e.key === "Enter") { e.preventDefault(); form.requestSubmit(); return; }
     if (!shortcutsOn() || typing(e.target) || e.ctrlKey || e.altKey || e.metaKey) return;
@@ -591,20 +752,22 @@ function renderQuestion(q) {
   form.onsubmit = e => {
     e.preventDefault();
     stopDictation();
-    const c = form.querySelector("input[name=c]:checked"), conf = form.querySelector("input[name=conf]:checked");
+    const c = form.querySelector("input[name=c]:checked");
     const why = form.why.value.trim(), hint = form.querySelector(".hint");
-    if (!c) { hint.textContent = "Pick an option (1–4)."; form.querySelector("input[name=c]").focus(); return; }
-    if (!conf) { hint.textContent = "How sure are you?"; form.querySelector("input[name=conf]").focus(); return; }
-    if (why.length < 10) { hint.textContent = "Explain your reasoning in a sentence or two."; form.why.focus(); return; }
+    const dk = c && c.value === "-1";
+    if (!c) { hint.textContent = "Pick an option (1–4), or “I don't know”."; form.querySelector("input[name=c]").focus(); return; }
+    if (!dk && !touched) { hint.textContent = "Set your confidence first — move the slider."; slider.focus(); return; }
+    if (!dk && why.length < 10) { hint.textContent = "Say why, in a sentence or two."; form.why.focus(); return; }
     hint.textContent = "";
-    guarded(["Checking your answer…", "Grading your reasoning…", "Preparing the next question…"], async () => {
-      const r = await KG.api(`/api/assessments/${tutor.id}/answer`, { choice: +c.value, reasoning: why, confidence: conf.value });
+    const level = dk ? "guess" : confLevel(+slider.value);
+    guarded(["Checking your answer…", "Grading your thinking…", "Preparing the next question…"], async () => {
+      const r = await KG.api(`/api/assessments/${tutor.id}/answer`, { choice: +c.value, reasoning: why, confidence: level });
       form.querySelectorAll("input,textarea,button").forEach(x => x.disabled = true);
-      form.querySelector(".row").remove();
+      form.querySelector(".think-bar").remove();
       const opts = form.querySelectorAll(".opt");
       opts[r.result.correct_index].classList.add("correct");
       opts[r.result.correct_index].insertAdjacentHTML("beforeend", '<span class="badge good" style="margin-left:auto">✓ correct</span>');
-      if (!r.result.correct) { opts[+c.value].classList.add("wrong"); opts[+c.value].insertAdjacentHTML("beforeend", '<span class="badge bad" style="margin-left:auto">✗ your pick</span>'); }
+      if (!r.result.correct && !dk) { opts[+c.value].classList.add("wrong"); opts[+c.value].insertAdjacentHTML("beforeend", '<span class="badge bad" style="margin-left:auto">✗ your pick</span>'); }
       renderGrade(r.result, r.score, +c.value, why);
       if (r.next_question) renderQuestion(r.next_question);
       return r.done;
