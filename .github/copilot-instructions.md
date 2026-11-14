@@ -86,8 +86,8 @@ A concept is "ready to learn" when all its prereqs are at mastery ≥ 3.
 
 - Prefer practice: when a concept reaches mastery 2–3, suggest a project or open-source issue from the Build page
   (`/build`) that exercises it, and use existing `practices` links as evidence when judging mastery.
-- The learner's work GitHub account is an Enterprise Managed User; open-source contributions happen from their
-  personal account (`github.username` in `kg.config.yaml`).
+- Open-source contributions happen from the GitHub account the learner connected on the Build page (stored per
+  machine in `.kg/github_account.json`, never in `kg.config.yaml`).
 - Never invent page numbers or book content — only cite what `kg search` returned.
 - Keep notes small and atomic: one concept per note; split when a note covers several ideas.
 - Don't change `mastery` without the learner's agreement.

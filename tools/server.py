@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import datetime as dt
 import json
+import sys
 import webbrowser
 
 from aiohttp import web
@@ -11,9 +12,9 @@ from aiohttp import web
 import kg
 from arena import Arena
 from builder import Builder
+from llm import make_provider
 from tutor import Tutor, TutorError
 
-DEFAULT_MODEL = "claude-sonnet-5.5"
 DEFAULT_PORT = 8765
 BUILD_TEMPLATE = kg.ROOT / "tools" / "build_template.html"
 TODAY_TEMPLATE = kg.ROOT / "tools" / "today_template.html"
@@ -73,7 +74,7 @@ async def graph_page(request: web.Request) -> web.Response:
 
 async def health(request: web.Request) -> web.Response:
     n = notes()
-    return web.json_response({"ok": True, "model": tutor(request).model,
+    return web.json_response({"ok": True, "model": tutor(request).model, "provider": tutor(request).provider.label,
                               "books": sum(1 for x in n.values() if x.type == "book"),
                               "questions": tutor(request).default_questions,
                               "speech_lang": request.app["speech_lang"]})
@@ -92,6 +93,7 @@ async def today(request: web.Request) -> web.Response:
     ready = [{"slug": x.slug, "title": x.title, "domain": x.domain, "mastery": x.mastery, "summary": x.summary,
               "prereqs": [title(p) for p in x.refs("prereqs")]} for x in kg.ready_concepts(n, None)[:6]]
     work = []
+    await builder(request).account.ensure()
     summary = builder(request).summary()
     for item in summary["projects"] + summary["contributions"]:
         state = item.get("status") or item.get("state")
@@ -181,7 +183,31 @@ async def build_page(request: web.Request) -> web.Response:
 
 
 async def build_summary(request: web.Request) -> web.Response:
+    await builder(request).account.ensure()
     return web.json_response(builder(request).summary())
+
+
+async def github_account(request: web.Request) -> web.Response:
+    await builder(request).account.ensure()
+    return web.json_response(builder(request).account.public())
+
+
+async def github_connect(request: web.Request) -> web.Response:
+    d = await body(request)
+    return web.json_response(await builder(request).account.connect(str(d.get("username") or ""),
+                                                                     str(d.get("token") or "")))
+
+
+async def github_device_start(request: web.Request) -> web.Response:
+    return web.json_response(await builder(request).account.device_start())
+
+
+async def github_device_poll(request: web.Request) -> web.Response:
+    return web.json_response(await builder(request).account.device_poll())
+
+
+async def github_signout(request: web.Request) -> web.Response:
+    return web.json_response(await builder(request).account.sign_out())
 
 
 async def build_sync(request: web.Request) -> web.Response:
@@ -267,9 +293,9 @@ async def arena_review(request: web.Request) -> web.Response:
     return web.json_response(await arena(request).review(request.match_info["slug"]))
 
 
-def make_app(model: str, questions: int, speech_lang: str = "en-US") -> web.Application:
+def make_app(provider, questions: int, speech_lang: str = "en-US") -> web.Application:
     app = web.Application(middlewares=[guard], client_max_size=1 << 20)
-    app["tutor"] = Tutor(model=model, questions=questions)
+    app["tutor"] = Tutor(provider, questions=questions)
     app["builder"] = Builder(app["tutor"], kg.load_settings().get("github") or {})
     app["arena"] = Arena(app["tutor"])
     app["speech_lang"] = speech_lang
@@ -298,6 +324,11 @@ def make_app(model: str, questions: int, speech_lang: str = "en-US") -> web.Appl
         web.post("/api/lessons", lesson),
         web.post("/api/lessons/{id}/learned", lesson_learned),
         web.get("/api/build", build_summary),
+        web.get("/api/github/account", github_account),
+        web.post("/api/github/connect", github_connect),
+        web.post("/api/github/device/start", github_device_start),
+        web.post("/api/github/device/poll", github_device_poll),
+        web.post("/api/github/signout", github_signout),
         web.post("/api/build/sync", build_sync),
         web.post("/api/build/issues", build_issues),
         web.post("/api/build/track", build_track),
@@ -317,14 +348,20 @@ def make_app(model: str, questions: int, speech_lang: str = "en-US") -> web.Appl
     return app
 
 
-def run(port: int | None = None, model: str | None = None, open_browser: bool = False) -> int:
+def run(port: int | None = None, model: str | None = None, open_browser: bool = False,
+        provider: str | None = None) -> int:
     cfg = (kg.load_settings().get("tutor") or {})
     port = port or int(cfg.get("port", DEFAULT_PORT))
-    model = model or cfg.get("model", DEFAULT_MODEL)
+    try:
+        backend = make_provider(cfg, provider=provider, model=model)
+    except TutorError as exc:
+        print(f"kg serve: {exc}", file=sys.stderr)
+        return 2
     questions = int(cfg.get("questions", 6))
     url = f"http://127.0.0.1:{port}/"
-    print(f"Knowledge graph + tutor on {url}  ·  build {url}build  ·  challenges {url}arena  (model: {model}; Ctrl+C to stop)")
+    print(f"Knowledge graph + tutor on {url}  ·  build {url}build  ·  challenges {url}arena  "
+          f"({backend.label}, model: {backend.model}; Ctrl+C to stop)")
     if open_browser:
         webbrowser.open(url)
-    web.run_app(make_app(model, questions, cfg.get("speech_lang", "en-US")), host="127.0.0.1", port=port, print=None)
+    web.run_app(make_app(backend, questions, cfg.get("speech_lang", "en-US")), host="127.0.0.1", port=port, print=None)
     return 0

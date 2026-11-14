@@ -95,8 +95,11 @@ remembered. While a quiz question is open only its own 🎤 button is shown.
 
 ### Assessment flow
 
-A chat panel next to the graph, powered by **GitHub Copilot via the Copilot SDK** (your Copilot subscription —
-no API keys). Click a concept → **Assess my knowledge**, or type any topic:
+A chat panel next to the graph, powered by the AI backend you choose in `kg.config.yaml` (`tutor.provider`):
+**Claude subscription** (`claude-code`: the Claude Code CLI that ships with the Claude desktop app; sign in once
+with `claude auth login`, no API key), **GitHub Copilot** (your Copilot subscription, `gh auth login`),
+**Anthropic** (Claude API, set `ANTHROPIC_API_KEY`), or **any OpenAI-compatible API** (OpenAI, Gemini, or local
+Ollama / LM Studio via `base_url`). Override per run with `kg serve --provider anthropic`. Click a concept → **Assess my knowledge**, or type any topic:
 
 1. **Adaptive MCQs** — one question at a time. You pick an option **and explain your reasoning**; the tutor
    grades the reasoning (0–2), names misconceptions, and adapts the next question (harder after strong answers,
@@ -117,9 +120,12 @@ the browser vendor's cloud speech service). Set the language with `tutor.speech_
 
 Real learning happens by building. The Build page (link at the top of the graph) has three parts:
 
-- **📊 My work** — **Sync from GitHub** pulls the public repos, PRs and issues of your personal account
-  (`github.username`) into the vault: repos → `vault/projects/gh-*.md` (type `project`), PRs/issues →
-  `vault/contributions/*.md` (type `contribution`). Copilot tags each with the concepts it exercises, creating
+- **📊 My work** — first **connect your GitHub account** (whoever opens the app uses their own: *Sign in with
+  GitHub*, a username, or a personal access token; an existing `gh auth login` is picked up automatically; the
+  sign-in is stored only on that machine in `.kg/`). **Sync from GitHub** then pulls that account's public repos,
+  PRs and issues into the vault: repos → `vault/projects/gh-<login>-*.md` (type `project`), PRs/issues →
+  `vault/contributions/*.md` (type `contribution`). Synced notes are gitignored and tagged with the account, so
+  each person only sees their own. The AI tutor tags each with the concepts it exercises, creating
   `practices` edges, so concepts show *"Practiced in projects"* in the graph. Re-syncing only updates state
   (merged/closed, stars, last push) and never overwrites your *What I learned* notes.
 - **🔎 Find issues** — finds healthy repos (by language, stars, recent activity and good-first-issue/help-wanted
@@ -129,9 +135,10 @@ Real learning happens by building. The Build page (link at the top of the graph)
   assessment gaps), with testable milestones and an open-source angle. **Add** creates `vault/projects/proj-*.md`;
   tick milestones, change status (idea → active → done) and link the repo from the page.
 
-> Your work account is an Enterprise Managed User and can't contribute to public repos, so contributions are
-> tracked for your personal account via read-only public API calls (authenticated with your `gh` login for rate
-> limits). Configure languages and minimum stars under `github:` in `kg.config.yaml`.
+> All GitHub calls are read-only public API calls; signing in only raises rate limits. Configure languages and
+> minimum stars under `github:` in `kg.config.yaml`. To offer a one-click **Sign in with GitHub** button, create
+> a GitHub OAuth App (Settings → Developer settings → OAuth Apps, tick *Enable Device Flow*) and put its client
+> ID (not a secret) in `github.client_id`.
 
 ## How it works
 

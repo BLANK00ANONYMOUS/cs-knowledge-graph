@@ -36,6 +36,12 @@
   .fit { color:var(--warn); letter-spacing:1px; }
   details summary { cursor:pointer; color:var(--accent); font-size:.875rem; min-height:1.75rem; }
   .empty { color:var(--muted); }
+  .avatar { width:28px; height:28px; border-radius:50%; vertical-align:middle; margin-right:.4rem; border:1px solid var(--border); }
+  #connect { max-width:640px; margin-top:.75rem; }
+  #connect h3 { margin-bottom:.15rem; }
+  #connect .or { color:var(--muted); font-size:.8125rem; margin:.35rem 0; }
+  .code { font-family:ui-monospace, SFMono-Regular, Menlo, monospace; font-size:1.25rem; letter-spacing:.12em; padding:.15rem .5rem;
+          border:1px solid var(--accent); border-radius:6px; background:var(--accent-bg); user-select:all; }
 </style>
 </head>
 <body>
@@ -55,7 +61,31 @@
   <section id="overview">
     <div class="row">
       <div id="profile" class="muted">Loading…</div>
-      <button class="primary" id="sync-btn">⟳ Sync from GitHub</button>
+      <button class="primary hidden" id="sync-btn">⟳ Sync from GitHub</button>
+      <button class="ghost hidden" id="signout-btn">Sign out</button>
+    </div>
+    <div id="connect" class="card hidden" aria-labelledby="connect-title">
+      <h3 id="connect-title">Connect your GitHub account</h3>
+      <p class="muted" style="margin:0">Your repos become projects and your pull requests and issues become contributions,
+        linked to the concepts they practise. Read-only, public data. The sign-in is saved only on this machine.</p>
+      <div id="device-area" class="hidden">
+        <div class="row"><button class="primary" id="device-btn">Sign in with GitHub</button></div>
+        <div id="device-box" class="muted" aria-live="polite"></div>
+        <div class="or">or</div>
+      </div>
+      <div class="row">
+        <input type="text" id="gh-user" placeholder="Your GitHub username" size="26" autocomplete="username" spellcheck="false">
+        <button id="user-btn">Use username</button>
+      </div>
+      <details>
+        <summary>Use a personal access token instead (higher rate limits)</summary>
+        <p class="muted">Create a <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener">fine-grained token</a>
+          with public repository access only; no permissions are needed.</p>
+        <div class="row">
+          <input type="password" id="gh-token" placeholder="github_pat_…" size="34" autocomplete="off" spellcheck="false">
+          <button id="token-btn">Connect</button>
+        </div>
+      </details>
     </div>
     <h2>At a glance</h2>
     <div class="tiles" id="tiles"></div>
@@ -73,9 +103,8 @@
 
   <!-- issue finder -->
   <section id="issues" class="hidden">
-    <p class="muted">Searches public GitHub for unassigned, recently active issues in healthy repos, then Copilot ranks them
-      against your mastery, gaps and interests. Your work account can't contribute to public repos — claim and
-      submit from your personal account <b id="who"></b>.</p>
+    <p class="muted">Searches public GitHub for unassigned, recently active issues in healthy repos, then the AI tutor ranks
+      them against your mastery, gaps and interests. Claim and submit them from your GitHub account <b id="who"></b>.</p>
     <div class="row">
       <input type="text" id="langs" placeholder="Languages, comma-separated" size="28">
       <label class="row"><input type="checkbox" class="lbl" value="good first issue" checked> good first issue</label>
@@ -92,7 +121,7 @@
 
   <!-- project ideas -->
   <section id="ideas" class="hidden">
-    <p class="muted">Copilot proposes projects that exercise concepts you're ready for or weak in, avoiding ones you already have.</p>
+    <p class="muted">The AI tutor proposes projects that exercise concepts you're ready for or weak in, avoiding ones you already have.</p>
     <div class="row">
       <select id="focus"><option value="any">Any domain</option><option>ai</option><option>security</option><option>systems</option><option>cs</option><option>math</option></select>
       <label class="row">~hours <input type="number" id="hours" value="15" min="2" max="200" style="width:80px"></label>
@@ -153,12 +182,20 @@ function statusSelect(item, options, value) {
   return `<select data-status="${esc(item.slug)}">${options.map(o => `<option ${o === value ? "selected" : ""}>${o}</option>`).join("")}</select>`;
 }
 function render() {
-  const d = data, s = d.stats;
-  $("who").textContent = "@" + (d.username || "?");
-  $("profile").innerHTML = d.username
-    ? `Personal account <a href="https://github.com/${esc(d.username)}" target="_blank" rel="noopener">@${esc(d.username)}</a> ·
-       last sync ${esc(d.last_sync || "never")}${d.authenticated ? "" : " · ⚠ unauthenticated (low rate limit)"}`
-    : "Set <code>github.username</code> in kg.config.yaml";
+  const d = data, s = d.stats, acc = d.account || {};
+  $("who").textContent = d.username ? "@" + d.username : "(connect it on 📊 My work)";
+  $("connect").classList.toggle("hidden", !!acc.signed_in);
+  $("device-area").classList.toggle("hidden", !acc.device_flow);
+  $("sync-btn").classList.toggle("hidden", !acc.signed_in);
+  $("signout-btn").classList.toggle("hidden", !acc.signed_in);
+  const how = { github: "signed in with GitHub", token: "signed in with a token", username: "public data only" }[acc.method]
+    || (acc.method ? String(acc.method).replace(/^auto \((.*)\)$/, "signed in via $1") : "");
+  const avatar = /^https:\/\/avatars\.githubusercontent\.com\//.test(acc.avatar_url || "")
+    ? `<img class="avatar" src="${esc(acc.avatar_url)}" alt="">` : "";
+  $("profile").innerHTML = acc.signed_in
+    ? `${avatar}<a href="https://github.com/${esc(d.username)}" target="_blank" rel="noopener">@${esc(d.username)}</a>${acc.name ? ` (${esc(acc.name)})` : ""} ·
+       ${esc(how)} · last sync ${esc(d.last_sync || "never")}${d.authenticated ? "" : " · ⚠ unauthenticated (low rate limit)"}`
+    : "No GitHub account connected on this machine.";
   if (!$("langs").value) $("langs").value = d.languages.join(", ");
   $("stars").value = $("stars").value || d.min_stars;
   const langs = Object.entries(s.languages).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${esc(k)} ${v}`).join(" · ") || "—";
@@ -184,8 +221,8 @@ function render() {
         ${statusSelect(p, ["idea", "active", "done", "abandoned"], p.status)}</div>
       <h3>${p.url ? `<a href="${safeUrl(p.url)}" target="_blank" rel="noopener">${esc(p.title)}</a>` : esc(p.title)}</h3>
       <div>${esc(p.summary)}</div><div>${concepts(p.practices)}</div>${milestones(p)}
-      ${p.source !== "github" && !p.url ? `<div class="row"><input type="text" placeholder="https://github.com/${esc(d.username)}/repo" data-repo-input="${esc(p.slug)}" size="30"><button data-repo="${esc(p.slug)}">Link repo</button></div>` : ""}
-    </div>`).join("") : '<p class="muted">No projects yet — press Sync, or add ideas from 💡 Project ideas.</p>';
+      ${p.source !== "github" && !p.url ? `<div class="row"><input type="text" placeholder="https://github.com/${esc(d.username || "you")}/repo" data-repo-input="${esc(p.slug)}" size="30"><button data-repo="${esc(p.slug)}">Link repo</button></div>` : ""}
+    </div>`).join("") : `<p class="muted">No projects yet — ${acc.signed_in ? "press Sync" : "connect GitHub above"}, or add ideas from 💡 Project ideas.</p>`;
 
   const contribs = d.contributions.filter(c => c.kind !== "target");
   $("contribs").innerHTML = contribs.length ? `<table><tr><th></th><th>Title</th><th>Repo</th><th>State</th><th>Concepts</th><th>Date</th></tr>
@@ -200,7 +237,45 @@ async function load() {
   data = d; render();
 }
 $("proj-filter").onchange = render;
-$("sync-btn").onclick = () => run("Syncing GitHub and tagging new work with Copilot…", async () => {
+
+/* ---------------- GitHub account (per machine) */
+function signedIn(login) { status(`Connected as @${login}`); setTimeout(() => status(""), 4000); }
+$("user-btn").onclick = () => run("Connecting…", async () => {
+  const r = await api("/api/github/connect", { username: $("gh-user").value });
+  await load(); signedIn(r.login);
+});
+$("gh-user").onkeydown = e => { if (e.key === "Enter") $("user-btn").click(); };
+$("token-btn").onclick = () => run("Checking token…", async () => {
+  const r = await api("/api/github/connect", { token: $("gh-token").value });
+  $("gh-token").value = "";
+  await load(); signedIn(r.login);
+});
+$("signout-btn").onclick = () => run("Signing out…", async () => { await api("/api/github/signout", {}); await load(); });
+$("device-btn").onclick = async () => {
+  const box = $("device-box");
+  try {
+    $("device-btn").disabled = true;
+    const s = await api("/api/github/device/start", {});
+    const uri = /^https:\/\/github\.com\//.test(s.verification_uri) ? s.verification_uri : "https://github.com/login/device";
+    box.innerHTML = `Open <a href="${esc(uri)}" target="_blank" rel="noopener">${esc(uri)}</a> and enter
+      <span class="code">${esc(s.user_code)}</span> — waiting for you to approve…`;
+    window.open(uri, "_blank", "noopener");
+    let wait = s.interval || 5;
+    const tick = async () => {
+      let r;
+      try { r = await api("/api/github/device/poll", {}); }
+      catch (e) { box.textContent = "⚠️ " + e.message; $("device-btn").disabled = false; return; }
+      if (r.status === "pending") { wait = r.interval || wait; setTimeout(tick, wait * 1000); return; }
+      $("device-btn").disabled = false;
+      if (r.status === "done") { box.textContent = ""; await load(); signedIn(r.account.login); return; }
+      box.textContent = { denied: "Sign-in was cancelled on GitHub.", expired: "The code expired — press Sign in again." }[r.status]
+        || "Sign-in failed: " + (r.message || "unknown error");
+    };
+    setTimeout(tick, wait * 1000);
+  } catch (e) { $("device-btn").disabled = false; status("⚠️ " + e.message, true); }
+};
+
+$("sync-btn").onclick = () => run("Syncing GitHub and tagging new work with the AI tutor…", async () => {
   const r = await api("/api/build/sync", {});
   await load();
   status(`Synced: ${r.new} new, ${r.updated} updated`);

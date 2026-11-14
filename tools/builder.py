@@ -1,14 +1,16 @@
 """Build features: GitHub sync (repos → projects, PRs/issues → contributions), open-source issue finder,
-and AI project suggestions. All AI calls go through the tutor's Copilot client."""
+and AI project suggestions. All AI calls go through the tutor's configured provider (llm.py)."""
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import datetime as dt
 import json
 import os
 import re
 import shutil
 import subprocess
+import time
 from typing import Literal
 
 import aiohttp
@@ -20,30 +22,42 @@ from tutor import Tutor, TutorError
 
 API = "https://api.github.com"
 SYNC_STATE = kg.ROOT / ".kg" / "github_sync.json"
+ACCOUNT_FILE = kg.ROOT / ".kg" / "github_account.json"   # per machine, never committed (.kg/ is gitignored)
+DEVICE_CODE_URL = "https://github.com/login/device/code"
+ACCESS_TOKEN_URL = "https://github.com/login/oauth/access_token"
 LANG_QUALIFIER = {"c++": "cpp", "c#": "csharp", "f#": "fsharp", "objective-c": "objective-c"}
 ACTIVE_DAYS = 120
+USERNAME_RE = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$")
 
 
-def resolve_token() -> str | None:
-    token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
-    if token:
-        return token
+def ambient_token() -> tuple[str | None, str | None]:
+    """A GitHub token already on this machine: env var, else the `gh` CLI login. Returns (token, source)."""
+    for var in ("GITHUB_TOKEN", "GH_TOKEN"):
+        if os.environ.get(var):
+            return os.environ[var], var
     if shutil.which("gh"):
         try:
             out = subprocess.run(["gh", "auth", "token"], capture_output=True, text=True, timeout=10)
-            return out.stdout.strip() or None
+            if out.stdout.strip():
+                return out.stdout.strip(), "gh CLI"
         except (OSError, subprocess.SubprocessError):
-            return None
-    return None
+            pass
+    return None, None
 
 
 class GitHub:
-    """Minimal read-only GitHub REST client (public data)."""
+    """Minimal read-only GitHub REST client (public data). The token only raises rate limits."""
 
-    def __init__(self):
-        self.token = resolve_token()
+    def __init__(self, token: str | None = None):
+        self.token = token
         self.session: aiohttp.ClientSession | None = None
         self.sem = asyncio.Semaphore(6)
+
+    async def set_token(self, token: str | None) -> None:
+        if token != self.token:
+            await self.close()
+            self.session = None
+            self.token = token
 
     async def _http(self) -> aiohttp.ClientSession:
         if self.session is None or self.session.closed:
@@ -64,6 +78,8 @@ class GitHub:
         async with self.sem, http.get(API + path, params=params, headers=headers) as r:
             if r.status == 404:
                 return None
+            if r.status == 401:
+                raise TutorError("GitHub rejected the saved sign-in (token expired or revoked). Sign in again.", 401)
             if r.status in (403, 429) and r.headers.get("X-RateLimit-Remaining") == "0":
                 raise TutorError("GitHub API rate limit reached; try again in a minute", 429)
             if r.status >= 400:
@@ -232,17 +248,173 @@ def iso_date(value: str | None) -> str | None:
     return value[:10] if value else None
 
 
+def is_synced(x: kg.Note) -> bool:
+    """Notes created by a GitHub sync (as opposed to tutor ideas / tracked targets the learner added)."""
+    return ((x.type == "project" and x.meta.get("source") == "github")
+            or (x.type == "contribution" and x.meta.get("kind") in ("pr", "issue")))
+
+
+async def _github_form(url: str, data: dict) -> dict:
+    async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=30)) as http:
+        async with http.post(url, data=data, headers={"Accept": "application/json",
+                                                      "User-Agent": "knowledge-graph-tutor"}) as r:
+            body = await r.json(content_type=None)
+            if r.status >= 400 and not isinstance(body, dict):
+                raise TutorError(f"GitHub sign-in failed (HTTP {r.status})", 502)
+            return body if isinstance(body, dict) else {}
+
+
+class Account:
+    """Who is signed in on this machine. Anyone who opens the app connects their own GitHub account.
+
+    Sources, in order: a sign-in saved from the Build page (device flow, token or username), else a token already
+    on the machine (GITHUB_TOKEN / GH_TOKEN / `gh auth login`). Signing out ignores the ambient token until the
+    learner connects again."""
+
+    def __init__(self, gh: GitHub, client_id: str | None):
+        self.gh = gh
+        self.client_id = client_id
+        self.info: dict | None = None      # {login, name, avatar_url, html_url, method}
+        self.pending: dict | None = None   # device-flow state
+        self.checked = False
+
+    def public(self) -> dict:
+        return {"signed_in": bool(self.info), **({k: self.info.get(k) for k in
+                                                  ("login", "name", "avatar_url", "html_url", "method")} if self.info else {}),
+                "authenticated": bool(self.gh.token), "device_flow": bool(self.client_id)}
+
+    @property
+    def login(self) -> str:
+        return (self.info or {}).get("login") or ""
+
+    def _read(self) -> dict:
+        try:
+            return json.loads(ACCOUNT_FILE.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return {}
+
+    def _write(self, data: dict) -> None:
+        ACCOUNT_FILE.parent.mkdir(parents=True, exist_ok=True)
+        ACCOUNT_FILE.write_text(json.dumps(data, indent=1), encoding="utf-8")
+        with contextlib.suppress(OSError):
+            os.chmod(ACCOUNT_FILE, 0o600)  # it may hold a token
+
+    async def ensure(self) -> None:
+        if self.checked:
+            return
+        self.checked = True
+        saved = self._read()
+        if saved.get("login"):
+            self.info = {k: saved.get(k) for k in ("login", "name", "avatar_url", "html_url", "method")}
+            await self.gh.set_token(saved.get("token"))
+            return
+        if saved.get("signed_out"):
+            return
+        token, source = ambient_token()
+        if token:
+            try:
+                await self._from_token(token, f"auto ({source})", save=False)
+            except TutorError:
+                await self.gh.set_token(None)
+
+    async def _from_token(self, token: str, method: str, save: bool) -> dict:
+        probe = GitHub(token)
+        try:
+            user = await probe.get("/user")
+        except TutorError as exc:
+            raise TutorError("GitHub didn't accept that token" + (" (invalid or expired)" if exc.status == 401 else
+                                                                   f": {exc}"), 401)
+        finally:
+            await probe.close()
+        if not user:
+            raise TutorError("GitHub didn't accept that token", 401)
+        await self.gh.set_token(token)
+        self.info = {"login": user["login"], "name": user.get("name"), "avatar_url": user.get("avatar_url"),
+                     "html_url": user.get("html_url"), "method": method}
+        if save:
+            self._write({**self.info, "token": token})
+        return self.info
+
+    async def connect(self, username: str = "", token: str = "") -> dict:
+        username, token = (username or "").strip().lstrip("@"), (token or "").strip()
+        if token:
+            await self._from_token(token, "token", save=True)
+        elif username:
+            if not USERNAME_RE.match(username):
+                raise TutorError("that doesn't look like a GitHub username")
+            ambient, _ = ambient_token()
+            await self.gh.set_token(ambient)  # only for rate limits; the identity is the username
+            user = await self.gh.get(f"/users/{username}")
+            if not user:
+                raise TutorError(f"GitHub user '{username}' not found", 404)
+            self.info = {"login": user["login"], "name": user.get("name"), "avatar_url": user.get("avatar_url"),
+                         "html_url": user.get("html_url"), "method": "username"}
+            self._write(dict(self.info))
+        else:
+            raise TutorError("enter a GitHub username or a token")
+        self.checked = True
+        return self.public()
+
+    async def device_start(self) -> dict:
+        if not self.client_id:
+            raise TutorError("GitHub sign-in isn't set up: add github.client_id (an OAuth App with device flow "
+                             "enabled) to kg.config.yaml, or connect with a username or token instead.")
+        d = await _github_form(DEVICE_CODE_URL, {"client_id": self.client_id, "scope": "read:user"})
+        if "device_code" not in d:
+            raise TutorError(f"GitHub sign-in failed: {d.get('error_description') or d.get('error') or 'no code'}", 502)
+        self.pending = {"device_code": d["device_code"], "interval": int(d.get("interval") or 5),
+                        "expires": time.time() + int(d.get("expires_in") or 900)}
+        return {"user_code": d["user_code"], "verification_uri": d.get("verification_uri") or "https://github.com/login/device",
+                "interval": self.pending["interval"], "expires_in": int(d.get("expires_in") or 900)}
+
+    async def device_poll(self) -> dict:
+        p = self.pending
+        if not p:
+            raise TutorError("no GitHub sign-in in progress; start again")
+        if time.time() > p["expires"]:
+            self.pending = None
+            return {"status": "expired"}
+        d = await _github_form(ACCESS_TOKEN_URL, {"client_id": self.client_id, "device_code": p["device_code"],
+                                                  "grant_type": "urn:ietf:params:oauth:grant-type:device_code"})
+        err = d.get("error")
+        if err == "authorization_pending":
+            return {"status": "pending", "interval": p["interval"]}
+        if err == "slow_down":
+            p["interval"] = int(d.get("interval") or p["interval"] + 5)
+            return {"status": "pending", "interval": p["interval"]}
+        if err or not d.get("access_token"):
+            self.pending = None
+            return {"status": {"access_denied": "denied", "expired_token": "expired"}.get(err, "error"),
+                    "message": d.get("error_description") or err or "no token returned"}
+        self.pending = None
+        await self._from_token(d["access_token"], "github", save=True)
+        self.checked = True
+        return {"status": "done", "account": self.public()}
+
+    async def sign_out(self) -> dict:
+        self.info, self.pending = None, None
+        await self.gh.set_token(None)
+        self._write({"signed_out": True})
+        self.checked = True
+        return self.public()
+
+
 # --------------------------------------------------------------------------- engine
 
 class Builder:
     def __init__(self, tutor: Tutor, cfg: dict):
         self.tutor = tutor
-        self.username = cfg.get("username") or ""
         self.languages = cfg.get("languages") or ["Python", "C", "C++", "Rust", "Go"]
         self.min_stars = int(cfg.get("min_stars", 50))
         self.gh = GitHub()
+        client_id = os.environ.get("KG_GITHUB_CLIENT_ID") or cfg.get("client_id") or None
+        self.account = Account(self.gh, str(client_id) if client_id else None)
         self.last_issues: list[dict] = []
         self.last_ideas: list[dict] = []
+
+    @property
+    def username(self) -> str:
+        return self.account.login
 
     async def close(self) -> None:
         await self.gh.close()
@@ -250,9 +422,14 @@ class Builder:
     # ---- summary
 
     def summary(self) -> dict:
+        """Call `await self.account.ensure()` first (the server does) so the signed-in account is known."""
         n = notes()
+        me = self.username.lower()
         projects, contributions = [], []
         for s, x in n.items():
+            # synced notes belong to one GitHub account: only show the signed-in learner's own
+            if is_synced(x) and str(x.meta.get("github_account") or "").lower() != me:
+                continue
             if x.type == "project":
                 ms = checklist(x.body, "Milestones")
                 projects.append({"slug": s, "title": x.title, "summary": x.summary, "domain": x.domain,
@@ -278,8 +455,9 @@ class Builder:
                 langs[p["language"]] = langs.get(p["language"], 0) + 1
         state = json.loads(SYNC_STATE.read_text()) if SYNC_STATE.exists() else {}
         return {
-            "username": self.username, "languages": self.languages, "min_stars": self.min_stars,
-            "last_sync": state.get("time"), "authenticated": bool(self.gh.token),
+            "username": self.username, "account": self.account.public(),
+            "languages": self.languages, "min_stars": self.min_stars,
+            "last_sync": state.get(me) if me else None, "authenticated": bool(self.gh.token),
             "stats": {"projects": len(projects), "active": sum(p["status"] == "active" for p in projects),
                       "prs": sum(c["kind"] == "pr" for c in ext), "merged": sum(c["state"] == "merged" for c in ext),
                       "issues": sum(c["kind"] == "issue" for c in ext),
@@ -292,8 +470,9 @@ class Builder:
     # ---- sync
 
     async def sync(self) -> dict:
+        await self.account.ensure()
         if not self.username:
-            raise TutorError("set github.username in kg.config.yaml")
+            raise TutorError("connect your GitHub account first (Build page → Connect GitHub)")
         u = self.username
         repos, prs, issues = await asyncio.gather(
             self.gh.get(f"/users/{u}/repos", {"per_page": 100, "sort": "pushed", "type": "owner"}),
@@ -308,7 +487,7 @@ class Builder:
         updated = 0
 
         for r in (r for r in repos if not r.get("fork")):
-            slug = "gh-" + kg.slugify(r["name"])[:60]
+            slug = f"gh-{kg.slugify(u)}-{kg.slugify(r['name'])}"[:90]  # per account: two people can share a repo name
             pushed = iso_date(r.get("pushed_at"))
             status = "active" if pushed and (today - dt.date.fromisoformat(pushed)).days <= ACTIVE_DAYS else "done"
             fields = {"stars": r.get("stargazers_count", 0), "last_push": pushed, "language": r.get("language")}
@@ -355,8 +534,8 @@ class Builder:
             if x["kind"] == "repo":
                 r = x["r"]
                 meta = {"title": r["name"], "type": "project", "domain": domain, "tags": ["github"],
-                        "practices": concepts, "status": x["status"], "source": "github", "url": r["html_url"],
-                        **x["fields"]}
+                        "practices": concepts, "status": x["status"], "source": "github", "github_account": u,
+                        "url": r["html_url"], **x["fields"]}
                 body = (f"# {r['name']}\n\n> {summary or r.get('description') or 'GitHub repository'}\n\n"
                         f"{r.get('description') or ''}\n\nRepo: <{r['html_url']}>\n\n"
                         "## Milestones\n\n## What I learned\n\n_Your reflections: design decisions, bugs, what you'd redo._\n")
@@ -364,7 +543,7 @@ class Builder:
             else:
                 it = x["item"]
                 meta = {"title": it["title"], "type": "contribution", "domain": domain, "kind": x["kind"],
-                        "repo": f"{x['owner']}/{x['repo']}", "url": it["html_url"],
+                        "github_account": u, "repo": f"{x['owner']}/{x['repo']}", "url": it["html_url"],
                         "own_repo": x["owner"].lower() == self.username.lower(), "created": iso_date(it["created_at"]),
                         "practices": concepts, "tags": ["github"], **x["fields"]}
                 body = (f"# {it['title']}\n\n> {summary or it['title']}\n\n[{x['owner']}/{x['repo']}#{it['number']}]"
@@ -372,7 +551,12 @@ class Builder:
                 write_note(vault / "contributions" / f"{x['id']}.md", meta, body)
 
         SYNC_STATE.parent.mkdir(exist_ok=True)
-        SYNC_STATE.write_text(json.dumps({"time": dt.datetime.now().isoformat(timespec="seconds")}))
+        try:
+            state = json.loads(SYNC_STATE.read_text())
+        except (OSError, ValueError):
+            state = {}
+        state[u.lower()] = dt.datetime.now().isoformat(timespec="seconds")
+        SYNC_STATE.write_text(json.dumps(state))
         return {"new": len(new), "updated": updated, **self.summary()}
 
     async def _tag(self, batch: list[dict], n: dict[str, kg.Note]) -> dict[str, Tag]:

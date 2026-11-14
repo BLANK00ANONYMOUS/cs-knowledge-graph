@@ -1112,7 +1112,7 @@ new ResizeObserver(() => {
     $("nav").classList.remove("hidden");
     speechLang = h.speech_lang || speechLang;
     $("tutor-offline").classList.add("hidden"); $("tutor-app").classList.remove("hidden");
-    $("tutor-status").textContent = `Copilot · ${h.model} · ${h.books} book(s)`;
+    $("tutor-status").textContent = `${h.provider || "AI"} · ${h.model} · ${h.books} book(s)`;
     if (![...$("nq").options].some(o => o.value === String(h.questions))) $("nq").add(new Option(h.questions, h.questions));
     $("nq").value = String(h.questions);
   } catch (e) { return; }

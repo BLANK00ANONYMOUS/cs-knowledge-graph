@@ -3,3 +3,6 @@ PyYAML>=6.0
 aiohttp>=3.9
 pydantic>=2.11
 github-copilot-sdk>=1.0.31
+# optional: only needed for the backend you select in kg.config.yaml (tutor.provider)
+anthropic>=0.40.0
+openai>=1.50.0

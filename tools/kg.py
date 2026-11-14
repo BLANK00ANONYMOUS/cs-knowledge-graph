@@ -11,7 +11,7 @@ Commands:
   review     concepts due for spaced review
   rate       set mastery (0-5) for a note and stamp last_reviewed
   new        scaffold a new concept note
-  serve      run the graph viewer + AI tutor (MCQ assessment, study plans) on localhost
+  serve      run the graph viewer + AI tutor (MCQ assessment, study plans) on localhost (--provider to switch AI backend)
   judge      judge your solution to a development challenge
 """
 from __future__ import annotations
@@ -658,7 +658,7 @@ def cmd_serve(args) -> int:
     except ImportError as exc:
         print(f"missing dependency ({exc.name}): run setup.ps1", file=sys.stderr)
         return 2
-    return server.run(port=args.port, model=args.model, open_browser=args.open)
+    return server.run(port=args.port, model=args.model, open_browser=args.open, provider=args.provider)
 
 
 # --------------------------------------------------------------------------- cli
@@ -720,9 +720,11 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--submit", action="store_true", help="run hidden tests too and record the result")
     p.set_defaults(func=cmd_judge)
 
-    p = sub.add_parser("serve", help="run the graph + AI tutor web app (Copilot SDK)")
+    p = sub.add_parser("serve", help="run the graph + AI tutor web app")
     p.add_argument("--port", type=int)
-    p.add_argument("--model", help="Copilot model id (default: tutor.model in kg.config.yaml)")
+    p.add_argument("--provider", choices=["claude-code", "copilot", "anthropic", "openai"],
+                   help="AI backend (default: tutor.provider in kg.config.yaml)")
+    p.add_argument("--model", help="model id for the chosen provider (default: tutor.model in kg.config.yaml)")
     p.add_argument("--open", action="store_true", help="open the browser")
     p.set_defaults(func=cmd_serve)
 
