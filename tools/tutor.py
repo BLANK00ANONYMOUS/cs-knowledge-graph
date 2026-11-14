@@ -206,6 +206,9 @@ def _extract_json(text: str) -> str:
     return text[start:end + 1] if start != -1 and end > start else text
 
 
+MODEL_REJECTED = False   # set when the Copilot backend says the model is not available right now
+
+
 async def ask_json(session: CopilotSession, prompt: str, schema: type[BaseModel], timeout: float = 240):
     """Ask for a JSON object matching `schema` as plain text and validate it with Pydantic.
 
@@ -214,7 +217,12 @@ async def ask_json(session: CopilotSession, prompt: str, schema: type[BaseModel]
     instructions = ("\n\nRespond with ONLY a JSON object (no prose, no code fences) that matches this JSON Schema. "
                     "Fill every field with real, specific content:\n"
                     + json.dumps(schema.model_json_schema(), ensure_ascii=False))
-    event = await session.send_and_wait(prompt + instructions, timeout=timeout)
+    global MODEL_REJECTED
+    try:
+        event = await session.send_and_wait(prompt + instructions, timeout=timeout)
+    except Exception as exc:
+        MODEL_REJECTED = MODEL_REJECTED or "not available" in str(exc)
+        raise
     text = event.data.content if event else ""
     try:
         return schema.model_validate_json(_extract_json(text or ""))
@@ -239,6 +247,8 @@ def public_question(a: Assessment, q: MCQ) -> dict:
 class Tutor:
     def __init__(self, model: str, questions: int = 6, max_live_sessions: int = 8):
         self.model = model
+        self._verified = ""
+        self._model_lock = asyncio.Lock()
         self.default_questions = questions
         self.max_live_sessions = max_live_sessions
         self.client: CopilotClient | None = None
@@ -252,6 +262,20 @@ class Tutor:
             kwargs["github_token"] = token
         self.client = CopilotClient(mode="empty", base_directory=str(kg.ROOT / ".kg" / "copilot"), **kwargs)
         await self.client.start()
+        try:
+            ids = [getattr(m, "id", str(m)) for m in await self.client.list_models()]
+            if ids and self.model not in ids:
+                self.model = self._pick_model(ids)
+        except Exception:
+            pass
+
+    FALLBACKS = ["claude-sonnet-5", "claude-sonnet-4.6", "claude-sonnet-4.5", "gpt-5.6-terra", "gpt-5.3-codex", "claude-haiku-4.5", "auto"]
+
+    def _pick_model(self, ids: list[str], skip: str = "") -> str:
+        for m in self.FALLBACKS:
+            if m in ids and m != skip:
+                return m
+        return next((m for m in ids if m != skip), self.model)
 
     async def stop(self) -> None:
         for a in self.assessments.values():
@@ -261,6 +285,7 @@ class Tutor:
 
     async def ask_typed(self, system: str, prompt: str, schema: type[BaseModel], timeout: float = 300):
         """One-shot structured call in a fresh tool-less session."""
+        await self._ensure_model()
         session = await self.client.create_session(
             on_permission_request=PermissionHandler.approve_all, model=self.model, available_tools=[],
             system_message={"mode": "replace", "content": system})
@@ -271,6 +296,39 @@ class Tutor:
                 await session.disconnect()
             except Exception:
                 pass
+
+    async def _ensure_model(self) -> None:
+        """Make sure self.model really answers (a listed model can still be rejected at run time); else fall back."""
+        global MODEL_REJECTED
+        if self._verified == self.model and not MODEL_REJECTED:
+            return
+        async with self._model_lock:
+            if self._verified == self.model and not MODEL_REJECTED:
+                return
+            try:
+                ids = [getattr(m, "id", str(m)) for m in await self.client.list_models()]
+            except Exception:
+                ids = []
+            order = [self.model] + [m for m in self.FALLBACKS if m != self.model and (not ids or m in ids)]
+            for m in order:
+                s = None
+                try:
+                    s = await self.client.create_session(on_permission_request=PermissionHandler.approve_all, model=m,
+                                                         available_tools=[])
+                    await s.send_and_wait("Reply with the single word OK.", timeout=60)
+                except Exception:
+                    continue
+                finally:
+                    if s:
+                        try:
+                            await s.disconnect()
+                        except Exception:
+                            pass
+                if m != self.model:
+                    print(f"model {self.model} is not available; using {m}")
+                self.model, self._verified, MODEL_REJECTED = m, m, False
+                return
+            raise TutorError("no Copilot model is available right now; check your Copilot sign-in/plan and retry", 503)
 
     # ---- helpers
 
@@ -334,6 +392,7 @@ class Tutor:
         ]
 
     async def _new_session(self, a: Assessment) -> CopilotSession:
+        await self._ensure_model()
         live = sorted((x for x in self.assessments.values() if x.session), key=lambda x: x.created)
         for old in live[: max(0, len(live) - self.max_live_sessions + 1)]:
             await self._close_session(old)

@@ -10,6 +10,8 @@ from aiohttp import web
 
 import kg
 from arena import Arena
+from jobs import Jobs
+from topics import Topics
 from builder import Builder
 from tutor import Tutor, TutorError
 
@@ -18,6 +20,8 @@ DEFAULT_PORT = 8765
 BUILD_TEMPLATE = kg.ROOT / "tools" / "build_template.html"
 TODAY_TEMPLATE = kg.ROOT / "tools" / "today_template.html"
 ARENA_TEMPLATE = kg.ROOT / "tools" / "arena_template.html"
+JOBS_TEMPLATE = kg.ROOT / "tools" / "jobs_template.html"
+SHELL_TEMPLATE = kg.ROOT / "tools" / "shell_template.html"
 
 
 def notes():
@@ -64,6 +68,11 @@ def tutor(request: web.Request) -> Tutor:
 
 
 async def index(request: web.Request) -> web.Response:
+    """The app shell: every section stays loaded in its own frame, so switching tabs never loses work."""
+    return web.Response(text=kg.render_page(SHELL_TEMPLATE), content_type="text/html")
+
+
+async def today_page(request: web.Request) -> web.Response:
     return web.Response(text=kg.render_page(TODAY_TEMPLATE), content_type="text/html")
 
 
@@ -89,8 +98,11 @@ async def today(request: web.Request) -> web.Response:
     title = lambda s: n[s].title if s in n else s
     due = [{"slug": x.slug, "title": x.title, "domain": x.domain, "mastery": x.mastery, "overdue": d}
            for d, x in kg.due_reviews(n)[:8]]
+    profile = kg.load_profile()
+    focus = [d for d in profile.get("focus") or [] if d in kg.DOMAINS]
+    ready_all = sorted(kg.ready_concepts(n, None), key=lambda x: x.domain not in focus) if focus else kg.ready_concepts(n, None)
     ready = [{"slug": x.slug, "title": x.title, "domain": x.domain, "mastery": x.mastery, "summary": x.summary,
-              "prereqs": [title(p) for p in x.refs("prereqs")]} for x in kg.ready_concepts(n, None)[:6]]
+              "prereqs": [title(p) for p in x.refs("prereqs")]} for x in ready_all[:6]]
     work = []
     summary = builder(request).summary()
     for item in summary["projects"] + summary["contributions"]:
@@ -122,9 +134,56 @@ async def today(request: web.Request) -> web.Response:
     best = max(rt.items(), key=lambda kv: (kv[1]["attempted"] > 0, kv[1]["rating"]))
     challenges = {"open": open_ch[:4], "solved": sum(v["solved"] for v in rt.values()),
                   "best_track": best[0], "best_rating": best[1]["rating"], "best_title": arena_mod.title_for(best[1]["rating"])}
+    steps = profile.get("steps") or {}
+    concepts_ = [x for x in n.values() if x.type == "concept"]
+    onboarding = {
+        "hidden": bool(profile.get("guide_hidden")), "focus": focus,
+        "done": {"focus": bool(focus),
+                 "quiz": "quiz" in steps or bool(plans) or any(x.mastery > 0 for x in concepts_),
+                 "lesson": "lesson" in steps,
+                 "topic": "topic" in steps,
+                 "role": any(x.type == "role" for x in n.values()),
+                 "challenge": "challenge" in steps or any(v["attempted"] for v in rt.values())},
+    }
     return web.json_response({"due": due, "ready": ready, "work": work[:6], "domains": domains, "activity": activity,
-                              "challenges": challenges,
+                              "challenges": challenges, "onboarding": onboarding,
                               "latest_plan": plans[0].relative_to(kg.ROOT).as_posix() if plans else None})
+
+
+async def profile_get(request: web.Request) -> web.Response:
+    return web.json_response(kg.load_profile())
+
+
+async def profile_set(request: web.Request) -> web.Response:
+    d = await body(request)
+    changes = {}
+    if "focus" in d:
+        if not isinstance(d["focus"], list):
+            raise TutorError("focus must be a list")
+        changes["focus"] = [x for x in dict.fromkeys(map(str, d["focus"])) if x in kg.DOMAINS]
+    if "guide_hidden" in d:
+        changes["guide_hidden"] = bool(d["guide_hidden"])
+    return web.json_response(kg.save_profile(changes))
+
+
+# ---- topics (grow the graph on demand)
+
+def topics(request: web.Request) -> Topics:
+    return request.app["topics"]
+
+
+async def topics_propose(request: web.Request) -> web.Response:
+    d = await body(request)
+    return web.json_response(await topics(request).propose(str(d.get("text") or "")))
+
+
+async def topics_create(request: web.Request) -> web.Response:
+    d = await body(request)
+    return web.json_response(await asyncio.to_thread(topics(request).create, d.get("topics")))
+
+
+async def topics_ideas(request: web.Request) -> web.Response:
+    return web.json_response({"ideas": await topics(request).ideas()})
 
 
 async def start(request: web.Request) -> web.Response:
@@ -140,8 +199,10 @@ async def answer(request: web.Request) -> web.Response:
         choice = int(d.get("choice"))
     except (TypeError, ValueError):
         raise TutorError("choice must be -1 (I don't know) or 0-3")
-    return web.json_response(await tutor(request).answer(
-        request.match_info["id"], choice, d.get("reasoning", ""), str(d.get("confidence") or "think")))
+    res = await tutor(request).answer(
+        request.match_info["id"], choice, d.get("reasoning", ""), str(d.get("confidence") or "think"))
+    kg.mark_step("quiz")
+    return web.json_response(res)
 
 
 async def report(request: web.Request) -> web.Response:
@@ -154,7 +215,9 @@ async def lesson(request: web.Request) -> web.Response:
 
 
 async def lesson_learned(request: web.Request) -> web.Response:
-    return web.json_response(tutor(request).mark_learned(request.match_info["id"]))
+    res = tutor(request).mark_learned(request.match_info["id"])
+    kg.mark_step("lesson")
+    return web.json_response(res)
 
 
 async def chat(request: web.Request) -> web.Response:
@@ -248,10 +311,12 @@ async def arena_detail(request: web.Request) -> web.Response:
 
 
 async def arena_run(request: web.Request) -> web.Response:
+    kg.mark_step("challenge")
     return web.json_response(await arena(request).judge(request.match_info["slug"], submit=False))
 
 
 async def arena_submit(request: web.Request) -> web.Response:
+    kg.mark_step("challenge")
     return web.json_response(await arena(request).judge(request.match_info["slug"], submit=True))
 
 
@@ -267,11 +332,61 @@ async def arena_review(request: web.Request) -> web.Response:
     return web.json_response(await arena(request).review(request.match_info["slug"]))
 
 
+# ---- jobs (target roles, skill gaps, job board)
+
+def jobs(request: web.Request) -> Jobs:
+    return request.app["jobs"]
+
+
+async def jobs_page(request: web.Request) -> web.Response:
+    return web.Response(text=kg.render_page(JOBS_TEMPLATE), content_type="text/html")
+
+
+async def jobs_overview(request: web.Request) -> web.Response:
+    return web.json_response(await asyncio.to_thread(jobs(request).overview))
+
+
+async def jobs_suggest(request: web.Request) -> web.Response:
+    return web.json_response({"roles": await jobs(request).suggest()})
+
+
+async def jobs_analyze(request: web.Request) -> web.Response:
+    d = await body(request)
+    return web.json_response(await jobs(request).analyze(
+        str(d.get("title") or "")[:120], str(d.get("jd") or "")[:12000], str(d.get("company") or "")[:80],
+        str(d.get("url") or "")[:500], "jd"))
+
+
+async def jobs_board(request: web.Request) -> web.Response:
+    d = await body(request)
+    return web.json_response({"jobs": await jobs(request).board(str(d.get("query") or "")[:80], bool(d.get("remote")))})
+
+
+async def jobs_board_analyze(request: web.Request) -> web.Response:
+    d = await body(request)
+    return web.json_response(await jobs(request).analyze_board(str(d.get("id") or "")))
+
+
+async def jobs_detail(request: web.Request) -> web.Response:
+    return web.json_response(jobs(request).detail(request.match_info["slug"]))
+
+
+async def jobs_add_skills(request: web.Request) -> web.Response:
+    return web.json_response(await asyncio.to_thread(jobs(request).add_skills, request.match_info["slug"]))
+
+
+async def jobs_status(request: web.Request) -> web.Response:
+    d = await body(request)
+    return web.json_response(jobs(request).set_status(request.match_info["slug"], str(d.get("status") or "")))
+
+
 def make_app(model: str, questions: int, speech_lang: str = "en-US") -> web.Application:
     app = web.Application(middlewares=[guard], client_max_size=1 << 20)
     app["tutor"] = Tutor(model=model, questions=questions)
     app["builder"] = Builder(app["tutor"], kg.load_settings().get("github") or {})
     app["arena"] = Arena(app["tutor"])
+    app["jobs"] = Jobs(app["tutor"], (kg.load_settings().get("github") or {}))
+    app["topics"] = Topics(app["tutor"])
     app["speech_lang"] = speech_lang
 
     async def on_startup(app):
@@ -285,6 +400,12 @@ def make_app(model: str, questions: int, speech_lang: str = "en-US") -> web.Appl
     app.on_cleanup.append(on_cleanup)
     app.add_routes([
         web.get("/", index),
+        web.get("/today", today_page),
+        web.get("/api/profile", profile_get),
+        web.post("/api/profile", profile_set),
+        web.post("/api/topics/propose", topics_propose),
+        web.post("/api/topics/create", topics_create),
+        web.post("/api/topics/ideas", topics_ideas),
         web.get("/graph", graph_page),
         web.get("/build", build_page),
         web.get("/api/health", health),
@@ -304,6 +425,15 @@ def make_app(model: str, questions: int, speech_lang: str = "en-US") -> web.Appl
         web.post("/api/build/ideas", build_suggest),
         web.post("/api/build/projects", build_create),
         web.post("/api/build/projects/{slug}", build_update),
+        web.get("/jobs", jobs_page),
+        web.get("/api/jobs", jobs_overview),
+        web.post("/api/jobs/suggest", jobs_suggest),
+        web.post("/api/jobs/analyze", jobs_analyze),
+        web.post("/api/jobs/board", jobs_board),
+        web.post("/api/jobs/board/analyze", jobs_board_analyze),
+        web.get("/api/jobs/{slug}", jobs_detail),
+        web.post("/api/jobs/{slug}/add-skills", jobs_add_skills),
+        web.post("/api/jobs/{slug}/status", jobs_status),
         web.get("/arena", arena_page),
         web.get("/api/arena", arena_overview),
         web.post("/api/arena/new", arena_new),
@@ -323,7 +453,7 @@ def run(port: int | None = None, model: str | None = None, open_browser: bool = 
     model = model or cfg.get("model", DEFAULT_MODEL)
     questions = int(cfg.get("questions", 6))
     url = f"http://127.0.0.1:{port}/"
-    print(f"Knowledge graph + tutor on {url}  ·  build {url}build  ·  challenges {url}arena  (model: {model}; Ctrl+C to stop)")
+    print(f"Knowledge graph + tutor on {url}  ·  build {url}build  ·  challenges {url}arena  ·  jobs {url}jobs  (model: {model}; Ctrl+C to stop)")
     if open_browser:
         webbrowser.open(url)
     web.run_app(make_app(model, questions, cfg.get("speech_lang", "en-US")), host="127.0.0.1", port=port, print=None)

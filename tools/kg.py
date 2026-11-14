@@ -36,8 +36,8 @@ BUILD_DIR = ROOT / "build"
 TEMPLATE_PATH = Path(__file__).resolve().parent / "graph_template.html"
 
 DOMAINS = ["math", "cs", "systems", "security", "ai", "meta"]
-TYPES = ["concept", "roadmap", "book", "project", "contribution", "challenge"]
-EDGE_KEYS = ["prereqs", "related", "covers", "practices"]
+TYPES = ["concept", "roadmap", "book", "project", "contribution", "challenge", "role"]
+EDGE_KEYS = ["prereqs", "related", "covers", "practices", "requires"]
 READY_MASTERY = 3
 REVIEW_INTERVAL_DAYS = {1: 1, 2: 3, 3: 7, 4: 21, 5: 60}
 
@@ -65,6 +65,32 @@ def load_config() -> tuple[Path, Path]:
 
 def slugify(text: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-") or "untitled"
+
+
+PROFILE_PATH = ROOT / ".kg" / "profile.json"
+
+
+def load_profile() -> dict:
+    """Learner preferences + onboarding progress (machine-local, gitignored)."""
+    try:
+        data = json.loads(PROFILE_PATH.read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def save_profile(changes: dict) -> dict:
+    data = {**load_profile(), **changes}
+    PROFILE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    PROFILE_PATH.write_text(json.dumps(data, indent=1, ensure_ascii=False), encoding="utf-8")
+    return data
+
+
+def mark_step(step: str) -> None:
+    """Record that an onboarding step happened (first time only)."""
+    steps = load_profile().get("steps") or {}
+    if step not in steps:
+        save_profile({"steps": {**steps, step: dt.date.today().isoformat()}})
 
 
 @dataclass
@@ -122,7 +148,7 @@ class Note:
 
 
 def parse_note(path: Path) -> Note:
-    text = path.read_text(encoding="utf-8")
+    text = path.read_text(encoding="utf-8-sig")   # tolerate a BOM (e.g. files saved by Windows PowerShell)
     match = FRONTMATTER.match(text)
     meta, body = {}, text
     if match:
@@ -258,11 +284,11 @@ def graph_data(notes: dict[str, Note]) -> dict:
             "due": slug in due,
         })
         for key, kind in (("prereqs", "prereq"), ("related", "related"), ("covers", "covers"),
-                          ("practices", "practices")):
+                          ("practices", "practices"), ("requires", "requires")):
             for ref in note.refs(key):
                 if ref not in notes:
                     continue
-                src, dst = (ref, slug) if kind == "prereq" else (slug, ref)
+                src, dst = (ref, slug) if kind in ("prereq", "requires") else (slug, ref)
                 pair = frozenset((src, dst))
                 if (pair, kind) in seen or (kind != "prereq" and pair in seen):
                     continue
