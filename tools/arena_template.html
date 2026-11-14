@@ -19,6 +19,10 @@
   h3 { font-size:1rem; margin:1rem 0 .4rem; }
   label.f { display:block; font-size:.8125rem; color:var(--muted); margin:.5rem 0 .2rem; }
   aside select, aside input[type=text] { width:100%; }
+  .hint { font-size:.8125rem; margin:.3rem 0 0; overflow-wrap:anywhere; }
+  .hint.warn { color:var(--fg); background:var(--warn-bg); border:1px solid var(--warn); border-radius:8px; padding:.4rem .55rem; }
+  #lang-all ul { list-style:none; padding:0; margin:.3rem 0 0; }
+  #lang-all li { padding:.15rem 0; }
   .tiles { display:grid; grid-template-columns:repeat(auto-fit, minmax(150px, 1fr)); gap:.6rem; }
   .tile { background:var(--panel); border:1px solid var(--border); border-radius:10px; padding:.7rem .8rem; }
   .tile b { font-size:1.5rem; display:block; }
@@ -48,12 +52,14 @@
   .spinner { width:.9rem; height:.9rem; border:2px solid var(--border); border-top-color:var(--accent); border-radius:50%; animation:spin .8s linear infinite; }
   @keyframes spin { to { transform:rotate(360deg); } }
   @media (max-width: 900px) { .layout { grid-template-columns:1fr; } aside { border-right:0; border-bottom:1px solid var(--border); } .diff { grid-template-columns:1fr; } }
+  html.embedded .actions { top:0; }
+  html.embedded .layout { min-height:100vh; }
 </style>
 </head>
 <body>
 <header>
   <nav class="appnav" aria-label="Main">
-    <a href="/">🏠 Today</a><a href="/graph">🧠 Graph</a><a href="/build">🛠 Build</a><a href="/arena" aria-current="page">🏁 Challenges</a>
+    <a href="/">🏠 Today</a><a href="/graph">🧠 Graph</a><a href="/build">🛠 Build</a><a href="/arena" aria-current="page">🏁 Challenges</a><a href="/jobs">💼 Jobs</a>
   </nav>
   <span class="grow"></span>
   <button id="theme" class="ghost"></button>
@@ -65,7 +71,9 @@
       <label class="f" for="track">Track</label>
       <select id="track"></select>
       <label class="f" for="lang">Language</label>
-      <select id="lang"></select>
+      <select id="lang" aria-describedby="lang-hint"></select>
+      <p id="lang-hint" class="hint muted" aria-live="polite"></p>
+      <details id="lang-all" class="hint"><summary class="muted"></summary><ul></ul></details>
       <label class="f" for="diff">Difficulty <b id="diff-v"></b> <span class="muted" id="diff-hint"></span></label>
       <input type="range" id="diff" min="800" max="2400" step="100" style="width:100%">
       <label class="f" for="concept">Practise a concept (optional)</label>
@@ -110,9 +118,10 @@ async function run(steps, fn, { cancellable = false } = {}) {
   if (busy) return;
   busy = true; document.querySelectorAll("button.primary, .actions button").forEach(b => b.disabled = true);
   const s = stages("", Array.isArray(steps) ? steps : [steps], cancellable);
+  KG.busy(true, Array.isArray(steps) ? steps[0] : steps);
   try { return await fn(s.signal); }
   catch (e) { if (e.name !== "AbortError") KG.toast("⚠️ " + esc(e.message), { error: true, ms: 9000 }); }
-  finally { s.stop(); busy = false; document.querySelectorAll("button.primary, .actions button").forEach(b => b.disabled = false); }
+  finally { s.stop(); busy = false; KG.busy(false); document.querySelectorAll("button.primary, .actions button").forEach(b => b.disabled = false); syncLang(); }
 }
 
 /* ---------------- overview */
@@ -121,11 +130,18 @@ function renderOverview() {
     <span class="muted">${esc(t.title)} · ${t.solved}/${t.attempted} solved</span></div>`).join("");
   if (!$("track").options.length) {
     $("track").innerHTML = O.tracks.map(t => `<option value="${t.track}">${t.track}</option>`).join("");
-    $("lang").innerHTML = O.languages.map(l => `<option value="${l.id}" ${l.available ? "" : "disabled"}>${l.label}${l.available ? "" : " (no compiler)"}</option>`).join("");
+    const avail = O.languages.filter(l => l.available), missing = O.languages.filter(l => !l.available);
+    $("lang").innerHTML = avail.map(l => `<option value="${l.id}">${esc(l.label)}</option>`).join("") +
+      (missing.length ? `<optgroup label="Not installed on this machine">${missing.map(l =>
+        `<option value="${l.id}">${esc(l.label)} (not installed)</option>`).join("")}</optgroup>` : "");
+    $("lang-all").querySelector("summary").textContent = `${avail.length} of ${O.languages.length} languages installed`;
+    $("lang-all").querySelector("ul").innerHTML = O.languages.map(l => `<li>${l.available ? "✓" : "✗"} <b>${esc(l.label)}</b>
+      <span class="muted">${l.available ? esc(l.version || "installed") : `install: <code>${esc(l.install)}</code>`}</span></li>`).join("");
     $("concept").innerHTML += O.concepts.map(c => `<option value="${esc(c.slug)}">${esc(c.title)}</option>`).join("");
     $("track").value = localStorage.getItem("kgArenaTrack") || "systems";
-    $("lang").value = localStorage.getItem("kgArenaLang") || "cpp";
-    syncDiff();
+    const saved = localStorage.getItem("kgArenaLang");
+    $("lang").value = O.languages.some(l => l.id === saved) ? saved : (avail.find(l => l.id === "cpp") || avail[0] || O.languages[0]).id;
+    syncDiff(); syncLang();
   }
   const f = $("filter").value;
   const items = O.challenges.filter(c => !f || c.status === f);
@@ -142,14 +158,26 @@ function syncDiff() {
   $("diff-v").textContent = $("diff").value;
   $("diff-hint").textContent = `(suggested ${t.suggested})`;
 }
+function syncLang() {
+  const l = O && O.languages.find(x => x.id === $("lang").value);
+  if (!l) return;
+  const hint = $("lang-hint");
+  hint.classList.toggle("warn", !l.available);
+  hint.innerHTML = l.available
+    ? `✓ ${esc(l.version || "installed")} · you'll edit <code>${esc(l.entry)}</code>`
+    : `${esc(l.label)} isn't installed here, so it can't be judged yet. Install it with <code>${esc(l.install)}</code>, then reload this page.`;
+  $("gen-btn").disabled = busy || !l.available;
+}
 $("track").onchange = () => { localStorage.setItem("kgArenaTrack", $("track").value); delete $("diff").dataset.touched; syncDiff(); };
-$("lang").onchange = () => localStorage.setItem("kgArenaLang", $("lang").value);
+$("lang").onchange = () => { localStorage.setItem("kgArenaLang", $("lang").value); syncLang(); };
 $("diff").oninput = () => { $("diff").dataset.touched = "1"; $("diff-v").textContent = $("diff").value; };
 $("filter").onchange = renderOverview;
 async function load() { O = await KG.api("/api/arena"); renderOverview(); }
 
 $("new-form").onsubmit = e => {
   e.preventDefault();
+  const lang = O.languages.find(l => l.id === $("lang").value);
+  if (!lang || !lang.available) { syncLang(); return; }
   run(["Designing the problem…", "Writing the reference solution…", "Writing public and hidden tests…",
        "Running the reference against every test…", "Fixing disagreements…", "Publishing…"], async signal => {
     const d = await KG.api("/api/arena/new", { track: $("track").value, language: $("lang").value, difficulty: +$("diff").value,
@@ -266,6 +294,8 @@ function renderReview(r) {
 
 load().then(() => { const h = location.hash.slice(1); if (h && O.challenges.some(c => c.slug === h)) open(h); })
   .catch(e => KG.toast("⚠️ " + esc(e.message) + " — is <code>kg serve</code> running?", { error: true, ms: 0 }));
+KG.onRoute(async u => { await load(); const h = u.hash.slice(1); if (h && O.challenges.some(c => c.slug === h)) open(h); });
+document.addEventListener("kg-shown", () => { if (!busy) load().catch(() => {}); });
 </script>
 </body>
 </html>

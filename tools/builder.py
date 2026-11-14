@@ -176,6 +176,9 @@ def learner_profile(n: dict[str, kg.Note]) -> str:
     lines = ["Mastery by domain (avg 0-5): " + ", ".join(
         f"{d}={sum(x.mastery for x in cs if x.domain == d) / max(1, sum(1 for x in cs if x.domain == d)):.1f}"
         for d in kg.DOMAINS if any(x.domain == d for x in cs))]
+    focus = kg.load_profile().get("focus")
+    if focus:
+        lines.append("Chosen focus areas: " + ", ".join(focus))
     strong = [x.slug for x in cs if x.mastery >= 3]
     learning = [x.slug for x in cs if 1 <= x.mastery < 3]
     ready = [x.slug for x in kg.ready_concepts(n, None)[:10]]
