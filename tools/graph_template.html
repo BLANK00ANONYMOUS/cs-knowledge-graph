@@ -165,6 +165,31 @@
   .lmap-legend { display:flex; gap:1rem; flex-wrap:wrap; font:.6875rem var(--font-mono); color:var(--muted); margin:.4rem 0 0; }
   .lmap-legend i { display:inline-block; width:.7rem; height:.7rem; border-radius:3px; margin-right:.3rem; vertical-align:-1px; border:1px solid currentColor; }
   /* focus mode: hide graph + filters during a quiz */
+  /* tutor content uses the panel's full width (centred once the panel is very wide) */
+  #chat-log { padding-inline:max(1rem, calc((100% - 1040px) / 2)); }
+  .msg { max-width:none; }
+  .msg.user { max-width:min(85%, 70ch); }
+  .msg.sys { max-width:none; }
+  /* simple view switch + add-topic */
+  .viewseg { display:flex; width:100%; margin:.5rem 0 .2rem; }
+  .viewseg label { flex:1; justify-content:center; min-height:2rem !important; }
+  #add-btn { width:100%; margin-top:.45rem; }
+  #add-dlg { width:min(48rem, 94vw); max-width:none; padding:1.1rem 1.25rem; }
+  #add-dlg h2 { font:500 1.3rem var(--font-serif); text-transform:none; letter-spacing:0; color:var(--fg); margin:0 0 .3rem; }
+  .tcard { display:grid; grid-template-columns:auto 1fr; gap:.15rem .7rem; align-items:start; border:1px solid var(--border); border-radius:12px;
+           padding:.6rem .8rem; margin:.45rem 0; background:var(--panel2); cursor:pointer; }
+  .tcard.main { border-color:var(--accent); }
+  .tcard input { margin-top:.3rem; }
+  .tcard .why, .tcard .needs { grid-column:2; font-size:.8125rem; color:var(--muted); }
+  .wl { list-style:none; padding:0; margin:.4rem 0; }
+  .wl li { display:flex; align-items:center; gap:.5rem; padding:.45rem 0; border-bottom:1px solid var(--border); }
+  .wl li:last-child { border-bottom:0; }
+  .wl .t { flex:1; min-width:0; }
+  .wl .t b { display:block; }
+  .wl button { min-height:2rem; padding:0 .6rem; font-size:.8125rem; }
+  .guide-list { margin:.3rem 0 .6rem; padding-left:1.1rem; font-size:.875rem; }
+  .guide-list li { margin:.25rem 0; }
+  /* focus mode: hide graph + filters during a quiz */
   body.focus-mode { grid-template-columns: 1fr; grid-template-rows: 100vh; }
   body.focus-mode #left, body.focus-mode #graph { display:none; }
   body.focus-mode #right { border-left:0; grid-column: 1 / -1; height:100vh; }
@@ -185,11 +210,16 @@
   <button type="button" class="rz-btn" id="tg-right" title="Hide / show details &amp; tutor  ( ] )" aria-label="Hide tutor panel">›</button></div>
 <aside id="left" aria-label="Graph filters">
   <nav class="appnav hidden" id="nav" aria-label="Main">
-    <a href="/">🏠 Today</a><a href="/graph" aria-current="page">🧠 Graph</a><a href="/build">🛠 Build</a><a href="/arena">🏁 Challenges</a>
+    <a href="/">🏠 Today</a><a href="/graph" aria-current="page">🧠 Graph</a><a href="/build">🛠 Build</a><a href="/arena">🏁 Challenges</a><a href="/jobs">💼 Jobs</a>
   </nav>
   <h1>Knowledge Graph</h1>
+  <div class="seg viewseg" role="radiogroup" aria-label="What the graph shows">
+    <label title="Only concepts and their prerequisites"><input type="radio" name="view" value="concepts">🧭 Concepts</label>
+    <label title="Also projects, books, challenges, roles"><input type="radio" name="view" value="all">🌌 Everything</label>
+  </div>
   <label for="q" class="sr-only">Search concepts</label>
   <input id="q" type="search" placeholder="Search concepts…  ( / )" autocomplete="off">
+  <button type="button" id="add-btn" class="hidden" title="Add anything you want to learn — the graph grows with you">➕ Add a topic</button>
   <h2 id="cl-h">Concepts</h2>
   <ul class="clist" id="clist" aria-labelledby="cl-h"></ul>
   <details class="fold" id="filters">
@@ -231,9 +261,7 @@
     <button role="tab" id="tab-details" aria-controls="details" aria-selected="true">Details</button>
     <button role="tab" id="tab-tutor" aria-controls="tutor" aria-selected="false" tabindex="-1">🎓 Tutor</button>
   </div>
-  <section id="details" class="tabpanel" role="tabpanel" aria-labelledby="tab-details">
-    <p class="muted">Select a concept — click it, or search and press Enter. Its prerequisite path is highlighted and the rest dims. Press <kbd>Esc</kbd> to show everything.</p>
-  </section>
+  <section id="details" class="tabpanel" role="tabpanel" aria-labelledby="tab-details"></section>
   <section id="tutor" class="tabpanel hidden" role="tabpanel" aria-labelledby="tab-tutor">
     <div id="tutor-offline" class="tabpanel">
       <h1>🎓 AI Tutor</h1>
@@ -258,19 +286,22 @@
         </div>
       </form>
       <div id="chat-log" role="log" aria-live="polite" aria-relevant="additions">
-        <div class="msg">
-          <p><b>Two modes</b></p>
-          <ul style="margin:.3rem 0 .6rem;padding-left:1.2rem">
-            <li><b>📘 Learn</b> — a bite-size lesson (fact-checked against your books), a quick check after each chunk, then a hands-on exercise the tutor reviews.</li>
-            <li><b>🎓 Quiz</b> — adaptive questions that set your real mastery level.</li>
-          </ul>
-          <p><b>In a quiz</b></p>
-          <ol style="margin:.3rem 0 0;padding-left:1.2rem">
-            <li>Pick an answer — keys <kbd>1</kbd>–<kbd>4</kbd> work when the question is focused — or “I don't know”.</li>
-            <li>Set your confidence <i>before</i> you see the answer. Confident mistakes are the most valuable to catch.</li>
-            <li>Write (or 🎤 dictate) your thinking. <kbd>Enter</kbd> submits, <kbd>Shift</kbd>+<kbd>Enter</kbd> adds a line.</li>
-          </ol>
-          <p class="muted" style="margin-top:.5rem">Then you get a study plan from your books, and suggested mastery you can apply to the graph.</p>
+        <div class="msg" id="welcome">
+          <p><b>What would you like to do?</b></p>
+          <div id="welcome-body"><p class="muted">Pick a concept in the graph, or type any topic above and press 📘 Learn or 🎓 Quiz.</p></div>
+          <details>
+            <summary>How Learn and Quiz work</summary>
+            <ul style="margin:.3rem 0 .6rem;padding-left:1.2rem">
+              <li><b>📘 Learn</b> — a bite-size lesson (fact-checked against your books), a quick check after each chunk, then a hands-on exercise the tutor reviews.</li>
+              <li><b>🎓 Quiz</b> — adaptive questions that set your real mastery level (3+ unlocks what comes next).</li>
+            </ul>
+            <ol style="margin:.3rem 0 0;padding-left:1.2rem">
+              <li>Pick an answer — keys <kbd>1</kbd>–<kbd>4</kbd> work when the question is focused — or “I don't know”.</li>
+              <li>Set your confidence <i>before</i> you see the answer. Confident mistakes are the most valuable to catch.</li>
+              <li>Write (or 🎤 dictate) your thinking. <kbd>Enter</kbd> submits, <kbd>Shift</kbd>+<kbd>Enter</kbd> adds a line.</li>
+            </ol>
+            <p class="muted" style="margin-top:.5rem">Then you get a study plan from your books, and suggested mastery you can apply to the graph.</p>
+          </details>
         </div>
       </div>
       <form id="chat-form">
@@ -282,6 +313,21 @@
     </div>
   </section>
 </aside>
+
+<dialog id="add-dlg" aria-labelledby="add-title">
+  <h2 id="add-title">➕ Add a topic to your graph</h2>
+  <p class="muted" style="margin-top:0">Type anything you want to learn. The AI tutor checks your graph first; if it's new, it plans the concept
+    plus any missing prerequisites and links them into your map. Nothing is saved until you confirm.</p>
+  <form id="add-form" class="row">
+    <label for="add-text" class="sr-only">Topic</label>
+    <input id="add-text" type="text" maxlength="200" autocomplete="off" style="flex:1;min-width:14rem"
+           placeholder="e.g. Docker networking, RSA, transformers, Bayes' theorem">
+    <button class="primary" id="add-go">Plan it</button>
+    <button type="button" id="add-ideas" title="Suggestions based on your graph, focus and goals">💡 Ideas for me</button>
+  </form>
+  <div id="add-out" aria-live="polite"></div>
+  <form method="dialog" class="row" style="justify-content:flex-end;margin-top:.75rem"><button>Close</button></form>
+</dialog>
 
 <dialog id="help" aria-labelledby="help-title">
   <h2 id="help-title" style="font-size:1rem;text-transform:none;color:var(--fg)">Keyboard shortcuts</h2>
@@ -310,6 +356,7 @@ const EDGE_STYLE = {
   related:   { color:"#56B4E9", dashes:[6,4], arrows:"", label:"related" },
   covers:    { color:"#E69F00", dashes:[2,4], arrows:"to", label:"book covers" },
   practices: { color:"#009E73", dashes:[4,3], arrows:"to", label:"practised in project" },
+  requires:  { color:"#CC79A7", dashes:[3,3], arrows:"to", label:"role needs" },
   mention:   { color:"#6e7681", dashes:false, arrows:"", label:"mentions" },
 };
 const MASTERY_TEXT = ["not started", "heard of it", "can explain the basics", "can apply it", "can implement or teach it", "expert"];
@@ -321,9 +368,12 @@ const NEXT_LEVEL = [
   "Teach it, handle edge cases, and tackle research-level questions.",
 ];
 const shortcutsOn = () => localStorage.getItem("kgShortcuts") !== "off";
+const ALL_TYPES = ["concept", "roadmap", "book", "project", "contribution", "challenge", "role"];
+let view = localStorage.getItem("kgView") === "all" ? "all" : "concepts";
+const viewTypes = v => new Set(v === "all" ? ALL_TYPES : ["concept"]);
 const state = {
-  domains: new Set(GRAPH.domains), types: new Set(["concept", "project", "book"]),
-  edges: new Set(["prereq", "related", "covers", "practices"]),
+  domains: new Set(GRAPH.domains), types: viewTypes(view),
+  edges: new Set(["prereq", "related", "covers", "practices", "requires"]),
   query: "", highlight: "", tree: false, focus: null,
 };
 let byId = {};
@@ -349,7 +399,7 @@ function focusSet(id) {
 const HIGHLIGHT = {
   ready: n => isReady(n), due: n => n.due, gaps: n => n.type === "concept" && n.mastery >= 1 && n.mastery <= 2,
   mastered: n => n.type === "concept" && n.mastery >= 3,
-  practiced: n => practiced.has(n.id) || ["project", "contribution", "challenge"].includes(n.type),
+  practiced: n => practiced.has(n.id) || ["project", "contribution", "challenge", "role"].includes(n.type),
 };
 
 function checkbox(container, key, value, label, color) {
@@ -360,7 +410,15 @@ function checkbox(container, key, value, label, color) {
   document.getElementById(container).appendChild(el);
 }
 GRAPH.domains.forEach(d => checkbox("domains", "domains", d, `${d} <span class="muted">(${GRAPH.nodes.filter(n => n.domain === d).length})</span>`, COLORS[d]));
-["concept", "roadmap", "book", "project", "contribution", "challenge"].forEach(t => checkbox("types", "types", t, `${t} <span class="muted">(${GRAPH.nodes.filter(n => n.type === t).length})</span>`));
+function typeBoxes() {
+  document.getElementById("types").innerHTML = "";
+  ALL_TYPES.forEach(t => checkbox("types", "types", t, `${t} <span class="muted">(${GRAPH.nodes.filter(n => n.type === t).length})</span>`));
+}
+typeBoxes();
+document.querySelectorAll('input[name="view"]').forEach(r => {
+  r.checked = r.value === view;
+  r.onchange = () => { view = r.value; localStorage.setItem("kgView", view); state.types = viewTypes(view); typeBoxes(); render(); };
+});
 Object.entries(EDGE_STYLE).forEach(([k, s]) => checkbox("edges", "edges", k, s.label, s.color));
 
 const nodes = new vis.DataSet(), edges = new vis.DataSet();
@@ -416,14 +474,14 @@ function render() {
   nodes.update(shown.map(n => {
     const hit = q && (n.title.toLowerCase().includes(q) || n.id.includes(q) || n.tags.some(t => t.includes(q)));
     const c = COLORS[n.domain] || COLORS.meta;
-    const work = ["project", "contribution", "challenge"].includes(n.type);
+    const work = ["project", "contribution", "challenge", "role"].includes(n.type);
     const ready = isReady(n), dim = dimmed(n) && !hit;
     const pips = n.type === "concept" && n.mastery > 0 ? "\n" + "●".repeat(n.mastery) + "○".repeat(5 - n.mastery) : "";
-    const labelled = labelsOn || hit || n.id === state.focus || (fset && fset.has(n.id)) || n.id === hovered;
+    const labelled = labelsOn || hit || n.id === state.focus || (fset && fset.has(n.id)) || n.id === hovered || ready || n.due;
     return {
       id: n.id, label: labelled ? n.title + pips : "", level: n.depth,
       size: n.type === "roadmap" ? 17 : n.type === "book" ? 11 : work ? 8 : 5.5 + n.mastery * 2.4,
-      shape: { roadmap: "star", book: "square", project: "diamond", contribution: "triangle", challenge: "hexagon" }[n.type] || "dot",
+      shape: { roadmap: "star", book: "square", project: "diamond", contribution: "triangle", challenge: "hexagon", role: "triangleDown" }[n.type] || "dot",
       color: { background: c, border: hit || n.id === state.focus ? fg : n.due ? accent : ready ? warn : c,
                highlight: { background: c, border: fg }, hover: { background: c, border: fg } },
       shapeProperties: { borderDashes: n.due ? [4, 3] : false },
@@ -463,13 +521,18 @@ function renderList() {
   const meta = n => n.due ? ["due", "due for review"] : isReady(n) ? ["ready", "ready to learn"]
     : n.mastery >= 3 ? ["", "mastered"] : n.mastery >= 1 ? ["", "in progress"] : ["", "locked"];
   const list = document.getElementById("clist");
-  list.innerHTML = items.length ? items.map(n => {
+  const addRow = q && KG.served()
+    ? `<li><button type="button" id="add-q" style="color:var(--accent)"><span class="t">➕ ${items.length ? "Not here? Add" : "Add"} “${esc(state.query)}” to my graph</span>
+        <span class="m">The tutor plans it + any missing prerequisites</span></button></li>` : "";
+  list.innerHTML = (items.length ? items.map(n => {
     const [cls, label] = meta(n);
     return `<li><button type="button" data-id="${esc(n.id)}" aria-current="${n.id === state.focus}">
       <span class="t">${esc(n.title)}</span>
       <span class="m ${cls}"><span class="dot" style="background:${COLORS[n.domain]}" aria-hidden="true"></span> ${esc(n.domain)} · ${label} · ${n.mastery}/5</span></button></li>`;
-  }).join("") : '<li class="muted" style="padding:.5rem">No concepts match.</li>';
+  }).join("") : '<li class="muted" style="padding:.5rem">No concepts match.</li>') + addRow;
   list.querySelectorAll("[data-id]").forEach(b => b.onclick = () => focusNode(b.dataset.id));
+  const aq = document.getElementById("add-q");
+  if (aq) aq.onclick = () => openAddTopic(state.query, true);
 }
 /* Lesson map: the prerequisite chain of a concept as boxes, layered, with a glow showing mastery. */
 function lessonMap(id) {
@@ -521,7 +584,29 @@ function focusNode(id, { scroll = true } = {}) {
 }
 function clearFocus() {
   state.focus = null; render(); network.unselectAll();
-  document.getElementById("details").innerHTML = '<p class="muted">Showing everything. Select a concept to focus on its learning path.</p>';
+  emptyDetails();
+}
+/* What the Details panel shows when nothing is selected: how to read the graph and where to start. */
+function emptyDetails() {
+  const ready = GRAPH.nodes.filter(isReady).sort((a, b) => a.depth - b.depth).slice(0, 5);
+  document.getElementById("details").innerHTML = `
+    <h1 style="font-size:1.35rem">Your map of what you know</h1>
+    <p class="reading" style="font-size:.9375rem">Each dot is a <b>concept</b>. Arrows go from a prerequisite to what it unlocks.
+      Learn a concept and quiz yourself to raise its <b>mastery (0–5)</b>; at 3+ the concepts after it unlock.</p>
+    <ul class="guide-list">
+      <li><b style="color:var(--warn)">Gold ring</b> = ready to learn now · <b style="color:var(--accent)">dashed ring</b> = due for review</li>
+      <li>Bigger dot = higher mastery · faded = not started</li>
+      <li>Click a dot (or a name on the left) to see its learning path</li>
+    </ul>
+    <h2>Start with one of these</h2>
+    ${ready.length ? pills(ready.map(n => n.id)) : '<p class="muted">Nothing unlocked yet.</p>'}
+    ${KG.served() ? `<h2>Want something that isn't here?</h2>
+      <p class="muted">There are thousands of topics — your graph grows only with what you choose.</p>
+      <button class="primary" type="button" id="details-add">➕ Add a topic</button>` : ""}`;
+  const el = document.getElementById("details");
+  el.querySelectorAll("[data-id]").forEach(p => p.onclick = () => focusNode(p.dataset.id));
+  const b = document.getElementById("details-add");
+  if (b) b.onclick = () => openAddTopic("");
 }
 
 function pills(ids) {
@@ -532,7 +617,7 @@ function pills(ids) {
 }
 function showDetails(id) {
   const n = byId[id]; if (!n) return;
-  const work = ["project", "contribution", "challenge"].includes(n.type);
+  const work = ["project", "contribution", "challenge", "role"].includes(n.type);
   const pre = prereqsOf(id), missing = pre.filter(p => byId[p] && byId[p].mastery < 3);
   let status = "";
   if (n.type === "concept") {
@@ -558,7 +643,7 @@ function showDetails(id) {
         <button class="ghost" data-act="clear">Show everything</button>
       </div>` : `<div class="actions">
         ${work && /^https:\/\/github\.com\//.test(n.url) ? `<a href="${esc(n.url)}" target="_blank" rel="noopener">Open on GitHub ↗</a>` : ""}
-        ${n.type === "challenge" ? `<a class="chip" href="/arena#${esc(n.id)}">🏁 Open challenge</a>` : ""}
+        ${n.type === "challenge" ? `<a class="chip" href="/arena#${esc(n.id)}">🏁 Open challenge</a>` : ""}${n.type === "role" ? `<a class="chip" href="/jobs#${esc(n.id)}">💼 Open role</a>` : ""}
         <button class="ghost" data-act="clear">Show everything</button></div>`}
     ${work ? `<h2>Practises</h2>${pills(linked(id, "practices"))}` : `
       ${n.type === "concept" ? `<h2>Lesson map</h2>${lessonMap(id)}` : ""}
@@ -599,6 +684,7 @@ document.getElementById("layout-tree").onclick = () => { state.tree = true; appl
 KG.themeButton(document.getElementById("theme"));
 document.addEventListener("kg-theme", render);
 render();
+emptyDetails();
 
 /* ---------------------------------------------------------------- tabs, help, keyboard */
 function switchTab(name) {
@@ -672,10 +758,12 @@ function setBusy(b) {
 async function guarded(stages, fn, { cancellable = false } = {}) {
   if (tutor.busy) return;
   setBusy(true);
-  const t = thinking(Array.isArray(stages) ? stages : [stages], cancellable);
+  const st = Array.isArray(stages) ? stages : [stages];
+  KG.busy(true, st[0]);
+  const t = thinking(st, cancellable);
   try { return await fn(t.signal); }
   catch (e) { if (e.name === "AbortError") addMsg("sys", "Cancelled."); else addMsg("error", "⚠️ " + esc(e.message) + " — you can try again."); }
-  finally { t.stop(); setBusy(false); }
+  finally { t.stop(); setBusy(false); KG.busy(false); }
 }
 function setTopic(n) { $("topic").value = n.title; tutor.slug = n.id; tutor.slugs = null; }
 $("topic").oninput = () => { tutor.slug = null; tutor.slugs = null; };
@@ -1101,6 +1189,142 @@ new ResizeObserver(() => {
   });
 }).observe(document.getElementById("graph"));
 
+/* ---------------------------------------------------------------- add a topic (grow the graph on demand) */
+const addDlg = $("add-dlg"), addOut = $("add-out");
+let addBusy = false;
+function openAddTopic(text, run = false) {
+  if (!KG.served()) return;
+  $("add-text").value = text || "";
+  if (!addDlg.open) addDlg.showModal();
+  $("add-text").focus();
+  if (run && text) $("add-form").requestSubmit();
+}
+$("add-btn").onclick = () => openAddTopic(state.query);
+async function addWork(label, fn) {
+  if (addBusy) return;
+  addBusy = true; KG.busy(true, label);
+  addDlg.querySelectorAll("button").forEach(b => b.disabled = true);
+  const t0 = Date.now();
+  addOut.innerHTML = `<div class="thinking" role="status" style="justify-content:flex-start;margin:.8rem 0"><span class="spinner" aria-hidden="true"></span><span class="lbl"></span></div>`;
+  const tick = () => { const l = addOut.querySelector(".lbl"); if (l) l.textContent = `${label} ${Math.round((Date.now() - t0) / 1000)}s`; };
+  tick(); const timer = setInterval(tick, 1000);
+  try { await fn(); }
+  catch (e) { addOut.innerHTML = `<p class="msg error">⚠️ ${esc(e.message)}</p>`; }
+  finally { clearInterval(timer); addBusy = false; KG.busy(false); addDlg.querySelectorAll("button").forEach(b => b.disabled = false); }
+}
+$("add-form").onsubmit = e => {
+  e.preventDefault();
+  const text = $("add-text").value.trim();
+  if (!text) { $("add-text").focus(); return; }
+  addWork("Checking your graph and planning the topic…", async () => renderProposal(await KG.api("/api/topics/propose", { text })));
+};
+$("add-ideas").onclick = () => addWork("Finding good next topics for you…", async () => {
+  const r = await KG.api("/api/topics/ideas", {});
+  addOut.innerHTML = `<h2>💡 Ideas — click one to plan it</h2>` + (r.ideas.length ? r.ideas.map((x, i) =>
+    `<div class="tcard" data-i="${i}" role="button" tabindex="0"><span class="dot" style="background:${COLORS[x.domain]};margin-top:.4rem" aria-hidden="true"></span>
+      <div><b>${esc(x.title)}</b> <span class="muted">${esc(x.domain)}</span></div><div class="why">${esc(x.why)}</div></div>`).join("")
+    : '<p class="muted">No new ideas right now.</p>');
+  addOut.querySelectorAll("[data-i]").forEach(c => {
+    const go = () => { $("add-text").value = r.ideas[+c.dataset.i].title; $("add-form").requestSubmit(); };
+    c.onclick = go; c.onkeydown = e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); go(); } };
+  });
+});
+function renderProposal(r) {
+  const chips = list => list.map(m => `<button type="button" class="chip" data-go="${esc(m.slug)}">${esc(m.title)} <span class="muted">${m.mastery ?? ""}${m.mastery != null ? "/5" : ""}</span></button>`).join("");
+  let html = r.note ? `<p class="reading" style="font-size:.9375rem">${esc(r.note)}</p>` : "";
+  if (r.existing) {
+    html += `<div class="tcard main" style="cursor:default"><span>✅</span><div><b>Already in your graph: ${esc(r.existing.title)}</b></div>
+      <div class="why"><button type="button" class="primary" data-learn="${esc(r.existing.slug)}">📘 Learn it</button>
+      <button type="button" data-go="${esc(r.existing.slug)}">Show in graph</button></div></div>`;
+  } else if (r.topics.length) {
+    const last = r.topics.length - 1;
+    html += `<h2>${r.topics.length > 1 ? `Adds ${r.topics.length} concepts — prerequisites first` : "Adds 1 concept"}</h2>` + r.topics.map((t, i) => `
+      <label class="tcard${i === last ? " main" : ""}"><input type="checkbox" data-k="${i}" checked>
+        <div><span class="dot" style="background:${COLORS[t.domain]}" aria-hidden="true"></span> <b>${esc(t.title)}</b>
+          <span class="muted">${esc(t.domain)}${i === last ? " · your topic" : " · prerequisite"}</span></div>
+        <div class="why">${esc(t.summary)}</div>
+        ${t.prereqs.length ? `<div class="needs">Needs: ${t.prereqs.map(p => esc(p.title) + (p.new ? " (new)" : "")).join(", ")}</div>` : ""}
+      </label>`).join("") +
+      `<div class="row" style="margin-top:.6rem"><button type="button" class="primary" id="add-confirm">➕ Add to my graph</button>
+        <span class="muted">Uncheck anything you already know well or don't want.</span></div>`;
+  } else html += '<p class="muted">Nothing to add — try wording it differently.</p>';
+  if (r.matches.length && !r.existing) html += `<h2>Similar concepts you already have</h2><div>${chips(r.matches)}</div>`;
+  addOut.innerHTML = html;
+  addOut.querySelectorAll("[data-go]").forEach(b => b.onclick = () => { addDlg.close(); focusNode(b.dataset.go); });
+  addOut.querySelectorAll("[data-learn]").forEach(b => b.onclick = () => { addDlg.close(); learnNow(b.dataset.learn); });
+  const confirm = $("add-confirm");
+  if (confirm) {
+    const sync = () => { const n = addOut.querySelectorAll("[data-k]:checked").length; confirm.disabled = !n; confirm.textContent = `➕ Add ${n} to my graph`; };
+    addOut.querySelectorAll("[data-k]").forEach(c => c.onchange = sync); sync();
+    confirm.onclick = () => {
+      const picked = [...addOut.querySelectorAll("[data-k]:checked")].map(c => r.topics[+c.dataset.k]);
+      addWork("Adding to your graph…", async () => {
+        const res = await KG.api("/api/topics/create", { topics: picked });
+        await refreshGraph(); renderWelcome();
+        addDlg.close(); addOut.innerHTML = ""; $("add-text").value = "";
+        if (res.focus && byId[res.focus]) {
+          focusNode(res.focus);
+          KG.toast(`✅ Added ${res.created.length} concept(s). <button type="button" class="primary" id="toast-learn">📘 Learn ${esc(byId[res.focus].title)}</button>`, { ms: 12000 });
+          const b = document.getElementById("toast-learn");
+          if (b) b.onclick = () => { b.closest(".toast").remove(); learnNow(res.focus); };
+        }
+      });
+    };
+  }
+}
+function learnNow(slug) {
+  if (!byId[slug]) return;
+  switchTab("tutor"); setTopic(byId[slug]); focusNode(slug, { scroll: false }); switchTab("tutor"); startLesson(slug);
+}
+function quizNow(slug) {
+  if (!byId[slug]) return;
+  switchTab("tutor"); setTopic(byId[slug]); focusNode(slug, { scroll: false }); switchTab("tutor"); $("assess-form").requestSubmit();
+}
+
+/* Tutor welcome: concrete next actions instead of instructions. */
+let focusAreas = [];
+function renderWelcome() {
+  const el = $("welcome-body"); if (!el) return;
+  const ready = GRAPH.nodes.filter(isReady).sort((a, b) => (focusAreas.includes(b.domain) - focusAreas.includes(a.domain)) || a.depth - b.depth).slice(0, 4);
+  const due = GRAPH.nodes.filter(n => n.type === "concept" && n.due);
+  el.innerHTML = `
+    ${due.length ? `<p><button type="button" class="primary" id="w-review">🔁 Review ${due.length} due concept${due.length > 1 ? "s" : ""}</button>
+      <span class="muted">— spaced review first keeps what you learned</span></p>` : ""}
+    <p class="muted" style="margin:.2rem 0">Ready to learn now (prerequisites done):</p>
+    ${ready.length ? `<ul class="wl">${ready.map(n => `<li><span class="dot" style="background:${COLORS[n.domain]}" aria-hidden="true"></span>
+      <span class="t"><b>${esc(n.title)}</b><span class="muted">${esc(n.summary || n.domain)}</span></span>
+      <button type="button" class="primary" data-learn="${esc(n.id)}">📘 Learn</button>
+      <button type="button" data-quiz="${esc(n.id)}" title="Already know it? Test out">🎓 Quiz</button></li>`).join("")}</ul>`
+      : '<p class="muted">Nothing unlocked right now — quiz yourself on something you know, or add a topic.</p>'}
+    <p style="margin-bottom:.3rem"><button type="button" id="w-add">➕ Add a topic</button>
+      <span class="muted">— or type any topic in the box above and press 📘 Learn / 🎓 Quiz</span></p>`;
+  el.querySelectorAll("[data-learn]").forEach(b => b.onclick = () => learnNow(b.dataset.learn));
+  el.querySelectorAll("[data-quiz]").forEach(b => b.onclick = () => quizNow(b.dataset.quiz));
+  $("w-add").onclick = () => openAddTopic("");
+  const rv = $("w-review");
+  if (rv) rv.onclick = () => route(new URLSearchParams({ review: due.slice(0, 6).map(n => n.id).join(",") }));
+}
+
+/* ---------------------------------------------------------------- deep links: /graph?learn=x | assess=x | review=a,b | focus=x | add=text */
+function route(params) {
+  const focus = params.get("focus"), n = params.get("n"), assess = params.get("assess"), review = params.get("review"),
+        learn = params.get("learn"), add = params.get("add");
+  if (n) { if (![...$("nq").options].some(o => o.value === n)) $("nq").add(new Option(n, n)); $("nq").value = n; }
+  if (learn && byId[learn]) learnNow(learn);
+  else if (assess && byId[assess]) quizNow(assess);
+  else if (review) {
+    const slugs = review.split(",").filter(s => byId[s]);
+    if (slugs.length) {
+      switchTab("tutor"); tutor.slugs = slugs; tutor.slug = null;
+      $("topic").value = "Mixed review: " + slugs.map(s => byId[s].title).join(", ");
+      document.body.classList.add("focus-mode"); $("focus-btn").setAttribute("aria-pressed", "true"); $("focus-btn").textContent = "⛶ Exit focus";
+      $("assess-form").requestSubmit();
+    }
+  } else if (add !== null) openAddTopic(add, !!add);
+  else if (focus && byId[focus]) focusNode(focus);
+  if ([...params.keys()].length) history.replaceState(null, "", "/graph");
+}
+
 /* ---------------------------------------------------------------- boot */
 (async () => {
   const params = new URLSearchParams(location.search);
@@ -1110,26 +1334,22 @@ new ResizeObserver(() => {
   try {
     const h = await KG.api("/api/health");
     $("nav").classList.remove("hidden");
+    $("add-btn").classList.remove("hidden");
     speechLang = h.speech_lang || speechLang;
     $("tutor-offline").classList.add("hidden"); $("tutor-app").classList.remove("hidden");
     $("tutor-status").textContent = `${h.provider || "AI"} · ${h.model} · ${h.books} book(s)`;
     if (![...$("nq").options].some(o => o.value === String(h.questions))) $("nq").add(new Option(h.questions, h.questions));
     $("nq").value = String(h.questions);
   } catch (e) { return; }
-  const n = params.get("n"), assess = params.get("assess"), review = params.get("review"), learn = params.get("learn");
-  if (n) { if (![...$("nq").options].some(o => o.value === n)) $("nq").add(new Option(n, n)); $("nq").value = n; }
-  if (learn && byId[learn]) { switchTab("tutor"); setTopic(byId[learn]); focusNode(learn, { scroll: false }); switchTab("tutor"); startLesson(learn); }
-  else if (assess && byId[assess]) { switchTab("tutor"); setTopic(byId[assess]); focusNode(assess, { scroll: false }); switchTab("tutor"); $("assess-form").requestSubmit(); }
-  else if (review) {
-    const slugs = review.split(",").filter(s => byId[s]);
-    if (slugs.length) {
-      switchTab("tutor"); tutor.slugs = slugs; tutor.slug = null;
-      $("topic").value = "Mixed review: " + slugs.map(s => byId[s].title).join(", ");
-      document.body.classList.add("focus-mode"); $("focus-btn").setAttribute("aria-pressed", "true"); $("focus-btn").textContent = "⛶ Exit focus";
-      $("assess-form").requestSubmit();
-    }
-  }
-  if (assess || review || learn) history.replaceState(null, "", "/graph");
+  try { focusAreas = (await KG.api("/api/profile")).focus || []; } catch (e) { /* optional */ }
+  renderWelcome(); emptyDetails();
+  if (params.get("learn") || params.get("assess") || params.get("review") || params.has("add")) switchTab("tutor");
+  params.delete("focus");
+  route(params);
+  KG.onRoute(u => route(u.searchParams));
+  document.addEventListener("kg-shown", async () => {
+    try { await refreshGraph(); if (!tutor.id) renderWelcome(); if (!state.focus) emptyDetails(); } catch (e) { /* server restarting */ }
+  });
 })();
 </script>
 </body>

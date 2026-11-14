@@ -207,10 +207,13 @@ def public_question(a: Assessment, q: MCQ) -> dict:
 class Tutor:
     def __init__(self, provider: Provider, questions: int = 6, max_live_sessions: int = 8):
         self.provider = provider
-        self.model = provider.model
         self.default_questions = questions
         self.max_live_sessions = max_live_sessions
         self.assessments: dict[str, Assessment] = {}
+
+    @property
+    def model(self) -> str:   # the provider may switch models at run time (Copilot falls back when one is unavailable)
+        return self.provider.model
 
     async def start(self) -> None:
         await self.provider.start()

@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Knowledge Graph</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script>/*__COMMON_JS__*/</script>
+<style>
+/*__COMMON_CSS__*/
+  html, body { height:100%; overflow:hidden; }
+  body { display:flex; flex-direction:column; }
+  .bar { display:flex; align-items:center; gap:.75rem; padding:.45rem 1rem; border-bottom:1px solid var(--border); background:var(--panel); flex:none; flex-wrap:wrap; }
+  .brand { font-family:var(--font-serif); font-size:1.05rem; margin-right:.25rem; white-space:nowrap; }
+  .grow { flex:1; }
+  .appnav a { position:relative; }
+  .appnav a .st { display:none; width:.45rem; height:.45rem; border-radius:50%; margin-left:.4rem; }
+  .appnav a.busy .st { display:inline-block; border:2px solid var(--border); border-top-color:var(--accent); width:.6rem; height:.6rem; animation:spin .8s linear infinite; }
+  .appnav a.done .st { display:inline-block; background:var(--good); }
+  @keyframes spin { to { transform:rotate(360deg); } }
+  #frames { flex:1; position:relative; min-height:0; }
+  #frames iframe { position:absolute; inset:0; width:100%; height:100%; border:0; background:var(--bg); }
+  #frames iframe.off { visibility:hidden; pointer-events:none; }
+  dialog { max-width:44rem; }
+  .loop { display:grid; grid-template-columns:repeat(4, 1fr); gap:.5rem; margin:.75rem 0; }
+  .loop div { border:1px solid var(--border); border-radius:10px; padding:.55rem .6rem; background:var(--panel2); font-size:.875rem; }
+  .loop b { display:block; margin-bottom:.15rem; }
+  dl.tabsdoc { display:grid; grid-template-columns:8.5rem 1fr; gap:.35rem .75rem; font-size:.9rem; }
+  dl.tabsdoc dt { font-weight:600; }
+  dl.tabsdoc dd { margin:0; }
+  @media (max-width: 700px) { .loop { grid-template-columns:1fr 1fr; } }
+</style>
+</head>
+<body>
+<header class="bar">
+  <span class="brand">🧠 Knowledge Graph</span>
+  <nav class="appnav" id="nav" aria-label="Main">
+    <a href="/today" data-tab="today" title="Alt+1">🏠 Today<span class="st" aria-hidden="true"></span></a>
+    <a href="/graph" data-tab="graph" title="Alt+2">🧠 Graph &amp; Tutor<span class="st" aria-hidden="true"></span></a>
+    <a href="/build" data-tab="build" title="Alt+3">🛠 Build<span class="st" aria-hidden="true"></span></a>
+    <a href="/arena" data-tab="arena" title="Alt+4">🏁 Challenges<span class="st" aria-hidden="true"></span></a>
+    <a href="/jobs" data-tab="jobs" title="Alt+5">💼 Jobs<span class="st" aria-hidden="true"></span></a>
+  </nav>
+  <span class="grow"></span>
+  <button id="guide-btn" class="ghost" aria-haspopup="dialog">❓ How it works</button>
+  <button id="theme" class="ghost"></button>
+</header>
+<main id="frames"></main>
+
+<dialog id="guide" aria-labelledby="guide-title">
+  <h2 id="guide-title" class="display" style="margin-top:0">How this app works</h2>
+  <p>Your knowledge graph is a map of <b>concepts</b> linked by <b>prerequisites</b>. You never read the books cover to
+    cover — the tutor teaches short lessons and checks facts against them. One loop, repeated:</p>
+  <div class="loop">
+    <div><b>1 · 📘 Learn</b>a bite-size lesson on a concept that's ready (its prerequisites are done)</div>
+    <div><b>2 · 🎓 Quiz</b>sets your real mastery 0–5; 3+ unlocks what comes next</div>
+    <div><b>3 · 🛠 Apply</b>a challenge or project milestone that uses it</div>
+    <div><b>4 · 🔁 Review</b>short mixed quizzes when it's due, so it sticks</div>
+  </div>
+  <dl class="tabsdoc">
+    <dt>🏠 Today</dt><dd>Start here every day: one button runs today's session. New? Follow the “Start here” checklist.</dd>
+    <dt>🧠 Graph &amp; Tutor</dt><dd>Find or <b>➕ add any topic</b> (the graph grows as you go), see its learning path, then Learn or Quiz in the tutor panel.</dd>
+    <dt>🛠 Build</dt><dd>Your GitHub projects, open-source issues to work on, and project ideas that practise concepts.</dd>
+    <dt>🏁 Challenges</dt><dd>Codeforces-style problems for real development work, judged with hidden tests and rated.</dd>
+    <dt>💼 Jobs</dt><dd>Roles you're aiming for, the skills they need, how ready you are — missing skills become graph concepts.</dd>
+  </dl>
+  <p class="muted">Work you start in one section keeps running when you switch to another — a spinner on the tab shows it's busy, a green dot means it finished.</p>
+  <form method="dialog" class="row"><button class="primary">Got it</button></form>
+</dialog>
+<script>
+const TABS = { today: "/today", graph: "/graph", build: "/build", arena: "/arena", jobs: "/jobs" };
+const ORDER = Object.keys(TABS);
+const PATH_TAB = { "/": "today", "/today": "today", "/graph": "graph", "/build": "build", "/arena": "arena", "/jobs": "jobs" };
+const frames = {}, links = {};
+let current = null;
+document.querySelectorAll("#nav a").forEach(a => {
+  links[a.dataset.tab] = a;
+  a.onclick = e => { if (e.ctrlKey || e.metaKey || e.shiftKey) return; e.preventDefault(); open(TABS[a.dataset.tab]); };
+});
+KG.themeButton(document.getElementById("theme"));
+const guide = document.getElementById("guide");
+document.getElementById("guide-btn").onclick = () => guide.showModal();
+
+function open(href) {
+  const u = new URL(href, location.origin);
+  const tab = PATH_TAB[u.pathname];
+  if (!tab) { location.href = u.href; return; }
+  const target = (u.pathname === "/" ? "/today" : u.pathname) + u.search + u.hash;
+  const deep = !!(u.search || u.hash);
+  let f = frames[tab];
+  if (!f) {
+    f = frames[tab] = document.createElement("iframe");
+    f.title = links[tab].textContent.trim();
+    f.src = deep ? target : TABS[tab];
+    document.getElementById("frames").appendChild(f);
+  } else if (deep) f.contentWindow.postMessage({ kg: "route", href: target }, location.origin);
+  else if (tab !== current) f.contentWindow.postMessage({ kg: "shown" }, location.origin);
+  for (const [k, el] of Object.entries(frames)) {
+    el.classList.toggle("off", k !== tab);
+    el.setAttribute("aria-hidden", k !== tab);
+  }
+  for (const [k, a] of Object.entries(links)) {
+    if (k === tab) { a.setAttribute("aria-current", "page"); a.classList.remove("done"); } else a.removeAttribute("aria-current");
+  }
+  current = tab;
+  localStorage.setItem("kgTab", tab);
+  document.title = links[tab].textContent.trim() + " · Knowledge Graph";
+  history.replaceState(null, "", "/#" + tab);
+  setTimeout(() => { try { f.contentWindow.focus(); } catch (e) { /* not loaded yet */ } }, 0);
+}
+
+window.addEventListener("message", e => {
+  if (e.origin !== location.origin || !e.data || typeof e.data !== "object") return;
+  const tab = Object.keys(frames).find(k => frames[k].contentWindow === e.source);
+  if (e.data.kg === "nav") open(String(e.data.href || "/"));
+  else if (e.data.kg === "tab" && ORDER[e.data.n - 1]) open(TABS[ORDER[e.data.n - 1]]);
+  else if (e.data.kg === "busy" && tab) {
+    const a = links[tab];
+    a.classList.toggle("busy", e.data.on);
+    if (!e.data.on && tab !== current) a.classList.add("done");
+    a.title = e.data.on ? (e.data.label || "Working…") : `Alt+${ORDER.indexOf(tab) + 1}`;
+  }
+});
+document.addEventListener("keydown", e => {
+  if (e.altKey && !e.ctrlKey && !e.metaKey && /^[1-5]$/.test(e.key)) { e.preventDefault(); open(TABS[ORDER[+e.key - 1]]); }
+});
+
+const params = new URLSearchParams(location.search);
+const hashTab = location.hash.slice(1);
+open(params.get("open") || TABS[hashTab] || TABS[localStorage.getItem("kgTab")] || "/today");
+if (!localStorage.getItem("kgGuideSeen")) { localStorage.setItem("kgGuideSeen", "1"); guide.showModal(); }
+</script>
+</body>
+</html>

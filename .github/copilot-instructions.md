@@ -14,14 +14,21 @@ You act as a **tutor and graph curator**, not just a code assistant.
   and tracked open-source `target` issues. Both use `practices: [concept slugs]` and a `## Milestones` checklist.
 - `vault/challenges/` — development challenges (type `challenge`) from the 🏁 Challenges page; the learner's code is in
   `challenges/<slug>/`, hidden tests/reference in `.kg/challenges/<slug>/` (never reveal those unless the challenge
-  is solved or given up). Judge with `.\kg.cmd judge <slug> [--submit]`; engine in `tools/arena.py`.
+  is solved or given up). Judge with `.\kg.cmd judge <slug> [--submit]`; engine in `tools/arena.py` (supported
+  languages and their toolchains: `LANGUAGES` there; the hidden reference is always Python).
+- `vault/roles/` — target job roles (type `role`) from the 💼 Jobs page: `skills:` (name, importance, `concept` slug or a
+  proposed `new_concept`), `requires:` (covering concept slugs), `status`. Engine in `tools/jobs.py`.
 - `journal/YYYY-MM-DD.md` — short log of each study session.
 - `plans/` — study plans written by the `kg serve` tutor after MCQ assessments (read them for context on gaps).
 - `tools/kg.py` — CLI. Run it as `.\kg.cmd <command>` (Windows) from the repo root.
-- `tools/tutor.py`, `tools/builder.py`, `tools/server.py` — the `kg serve` web app (Copilot SDK tutor, GitHub
-  build features). UI: `tools/today_template.html`, `graph_template.html`, `build_template.html`, sharing
+- `tools/tutor.py`, `tools/builder.py`, `tools/topics.py`, `tools/server.py` — the `kg serve` web app (AI tutor
+  behind the pluggable providers in `tools/llm.py`, GitHub build features, on-demand topic planning). UI: `tools/shell_template.html` (the app shell at `/`; each
+  section — `today`, `graph`, `build`, `arena`, `jobs` `_template.html` — runs in a persistent iframe; cross-section links
+  go through `KG.go()` / are intercepted by `common.js`, deep links reach an open section via `KG.onRoute`), sharing
   `tools/common.css` / `common.js` (theme tokens, accessibility defaults). Keep UI changes consistent with the
   learning-science table in README.md (confidence before reveal, elaborated feedback, focus+context, WCAG 2.2).
+- New concepts created from the app carry tag `added` (topic planner) or `from-role` (Jobs). Learner focus areas and
+  onboarding progress live in `.kg/profile.json`.
 - PDFs live **outside** the repo in `books_dir` (see `kg.config.yaml`); never commit PDFs or book text.
 
 ## Note format
@@ -31,7 +38,7 @@ The filename (without `.md`) is the note's **slug** and must be unique across th
 ```yaml
 ---
 title: Backpropagation & Autograd
-type: concept            # concept | roadmap | book | project | contribution | challenge
+type: concept            # concept | roadmap | book | project | contribution | challenge | role
 domain: ai               # math | cs | systems | security | ai | meta
 tags: []
 prereqs: [neural-networks, chain-rule]   # slugs that must be understood first (edges in the graph)

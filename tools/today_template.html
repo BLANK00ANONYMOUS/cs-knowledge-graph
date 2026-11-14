@@ -35,13 +35,31 @@
   .activity span { aspect-ratio:1; border-radius:3px; background:var(--panel2); border:1px solid var(--border); }
   .activity span.on { background:var(--good); border-color:var(--good); }
   .dot { width:.65rem; height:.65rem; border-radius:50%; display:inline-block; flex:none; }
+  /* start-here guide */
+  .guide { border-color:var(--accent); margin-top:1rem; }
+  .guide ol { list-style:none; padding:0; margin:.6rem 0 0; counter-reset:s; }
+  .guide li { display:grid; grid-template-columns:2rem 1fr; gap:.15rem .6rem; padding:.6rem 0; border-top:1px solid var(--border); align-items:start; }
+  .guide li .n { counter-increment:s; width:1.6rem; height:1.6rem; border-radius:50%; display:grid; place-content:center; border:1px solid var(--border);
+                 font:600 .75rem var(--font-mono); background:var(--panel2); }
+  .guide li .n::before { content:counter(s); }
+  .guide li.done .n { background:var(--good-bg); border-color:var(--good); }
+  .guide li.done .n::before { content:"✓"; }
+  .guide li.done .t b { color:var(--muted); text-decoration:line-through; }
+  .guide li .act { grid-column:2; display:flex; gap:.4rem; flex-wrap:wrap; align-items:center; margin-top:.25rem; }
+  .guide li.done .act { display:none; }
+  .fchip { min-height:2rem; border-radius:999px; padding:0 .8rem; }
+  .fchip[aria-pressed=true] { background:var(--accent-bg); border-color:var(--accent); font-weight:600; }
+  a.btn { display:inline-flex; align-items:center; min-height:2rem; padding:0 .7rem; border:1px solid var(--border); border-radius:6px; text-decoration:none; color:var(--fg); background:var(--panel2); font-size:.875rem; white-space:nowrap; }
+  a.btn.primary { background:var(--primary); color:var(--primary-fg); border-color:var(--primary-border); font-weight:600; }
+  .addform { display:flex; gap:.4rem; flex-wrap:wrap; width:100%; }
+  .addform input { flex:1; min-width:12rem; }
   @media (max-width: 640px) { .hero { grid-template-columns:1fr; } }
 </style>
 </head>
 <body>
 <header>
   <nav class="appnav" aria-label="Main">
-    <a href="/" aria-current="page">🏠 Today</a><a href="/graph">🧠 Graph</a><a href="/build">🛠 Build</a><a href="/arena">🏁 Challenges</a>
+    <a href="/" aria-current="page">🏠 Today</a><a href="/graph">🧠 Graph</a><a href="/build">🛠 Build</a><a href="/arena">🏁 Challenges</a><a href="/jobs">💼 Jobs</a>
   </nav>
   <span class="grow"></span>
   <button id="theme" class="ghost"></button>
@@ -50,6 +68,17 @@
   <p class="eyebrow" id="date"></p>
   <h1 id="greeting" style="font-size:2.2rem;margin:.2rem 0 .3rem">Welcome back</h1>
   <p class="muted" id="activity-text" aria-live="polite"></p>
+  <button type="button" class="ghost hidden" id="guide-show">🧭 Show the start-here guide</button>
+
+  <section class="card guide hidden" id="guide" aria-labelledby="guide-h">
+    <div class="row" style="justify-content:space-between">
+      <h2 id="guide-h" style="margin:0">🧭 Start here <span class="badge" id="guide-n"></span></h2>
+      <button type="button" class="ghost" id="guide-hide">Hide guide</button>
+    </div>
+    <p class="muted" style="margin:.35rem 0 0">The loop: <b>📘 learn</b> a concept → <b>🎓 quiz</b> to set your level → <b>🛠 apply</b> it → <b>🔁 review</b> when due.
+      Do each step once and you'll know the whole app.</p>
+    <ol id="steps"></ol>
+  </section>
 
   <section class="card hero" aria-labelledby="session-title" style="margin-top:1rem">
     <div>
@@ -75,8 +104,13 @@
     </section>
     <section class="card" aria-labelledby="ready-h">
       <h2 id="ready-h">🌱 Ready to learn</h2>
-      <p class="muted">All prerequisites mastered (≥ 3).</p>
+      <p class="muted">All prerequisites mastered (≥ 3). Your focus areas come first.</p>
       <ul class="items" id="ready"></ul>
+      <form class="addform" id="add-form2" style="margin-top:.6rem">
+        <label for="add-text2" class="sr-only">Add a topic</label>
+        <input id="add-text2" type="text" maxlength="200" placeholder="Want something else? e.g. Docker, RSA, transformers">
+        <button>➕ Add topic</button>
+      </form>
     </section>
     <section class="card" aria-labelledby="work-h">
       <h2 id="work-h">🛠 Continue building</h2>
@@ -128,7 +162,7 @@ function sessionPlan() {
 }
 function plan() {
   const p = sessionPlan(), btn = document.getElementById("start"), desc = document.getElementById("session-desc");
-  if (!p) { desc.textContent = "All caught up — nothing due and no new concepts unlocked. Try a project on the Build page."; btn.disabled = true; return; }
+  if (!p) { desc.textContent = "All caught up — nothing due and no new concepts unlocked. Add a topic you're curious about, or take a challenge."; btn.disabled = true; return; }
   btn.disabled = false;
   desc.innerHTML = p.learn
     ? `<b>${esc(p.label)}</b>. A bite-size lesson with quick checks after each part, then a hands-on exercise.`
@@ -136,9 +170,55 @@ function plan() {
   btn.onclick = () => {
     const q = new URLSearchParams({ n: p.n });
     if (p.learn) q.set("learn", p.learn); else q.set("review", p.slugs.join(","));
-    location.href = "/graph?" + q;
+    KG.go("/graph?" + q);
   };
 }
+
+/* ---- start-here guide */
+const FOCUS = [["systems", "⚙️ Systems"], ["security", "🛡 Security"], ["ai", "🤖 AI"], ["cs", "💻 CS & coding"], ["math", "📐 Math"]];
+const addTopic = text => KG.go("/graph?add=" + encodeURIComponent(text.trim()));
+function renderGuide() {
+  const o = T.onboarding, d = o.done, g = document.getElementById("guide");
+  const total = Object.keys(d).length, done = Object.values(d).filter(Boolean).length;
+  document.getElementById("guide-show").classList.toggle("hidden", !o.hidden);
+  g.classList.toggle("hidden", o.hidden);
+  if (o.hidden) return;
+  document.getElementById("guide-n").textContent = `${done} of ${total} done`;
+  const first = T.ready[0];
+  const q = s => encodeURIComponent(s);
+  const steps = [
+    ["focus", "Pick what you want to master", "Your choice orders what you learn first and shapes suggestions.",
+      FOCUS.map(([k, l]) => `<button type="button" class="fchip" data-f="${k}" aria-pressed="${o.focus.includes(k)}">${l}</button>`).join("")],
+    ["quiz", "Find your level with a short quiz", "Already know something? A quiz sets your mastery so you skip what you know.",
+      first ? `<a class="btn primary" href="/graph?assess=${q(first.slug)}&n=5">🎓 Quiz me on ${esc(first.title)}</a>` : `<a class="btn" href="/graph">Open the graph</a>`],
+    ["lesson", "Learn your first concept", "A bite-size lesson with quick checks and a hands-on exercise — no book reading.",
+      first ? `<a class="btn primary" href="/graph?learn=${q(first.slug)}">📘 Learn ${esc(first.title)}</a>` : `<a class="btn" href="/graph">Open the graph</a>`],
+    ["topic", "Add something you're curious about", "There are thousands of topics; your graph grows only with what you choose. The AI tutor adds missing prerequisites too.",
+      `<form class="addform" id="add-form1"><label for="add-text1" class="sr-only">Topic</label>
+        <input id="add-text1" type="text" maxlength="200" placeholder="e.g. Docker, RSA, transformers, Bayes' theorem"><button class="primary">➕ Add</button></form>`],
+    ["role", "Choose a job you're aiming for", "See the skills it needs and how ready you are; missing skills become graph concepts.",
+      `<a class="btn" href="/jobs">💼 Open Jobs</a>`],
+    ["challenge", "Solve your first hands-on challenge", "Real development problems in your language, judged with hidden tests.",
+      `<a class="btn" href="/arena">🏁 Open Challenges</a>`],
+  ];
+  document.getElementById("steps").innerHTML = steps.map(([k, title, why, act]) => `<li class="${d[k] ? "done" : ""}">
+      <span class="n" aria-hidden="true"></span><span class="t"><b>${esc(title)}</b>${d[k] ? ' <span class="sr-only">(done)</span>' : ""}<br><span class="muted">${esc(why)}</span></span>
+      <div class="act">${act}</div></li>`).join("");
+  g.querySelectorAll("[data-f]").forEach(b => b.onclick = async () => {
+    const set = new Set(T.onboarding.focus);
+    set.has(b.dataset.f) ? set.delete(b.dataset.f) : set.add(b.dataset.f);
+    await KG.api("/api/profile", { focus: [...set] });
+    await load();
+  });
+  const f1 = document.getElementById("add-form1");
+  if (f1) f1.onsubmit = e => { e.preventDefault(); const v = document.getElementById("add-text1").value; if (v.trim()) addTopic(v); };
+  // focus chips stay visible after the step is done so the choice can be changed
+  const fl = g.querySelector('li .act [data-f]');
+  if (fl) fl.closest(".act").style.display = "flex";
+}
+document.getElementById("guide-hide").onclick = async () => { await KG.api("/api/profile", { guide_hidden: true }); await load(); };
+document.getElementById("guide-show").onclick = async () => { await KG.api("/api/profile", { guide_hidden: false }); await load(); };
+document.getElementById("add-form2").onsubmit = e => { e.preventDefault(); const v = document.getElementById("add-text2").value; if (v.trim()) addTopic(v); };
 function render() {
   const dueEl = document.getElementById("due");
   document.getElementById("due-n").textContent = T.due.length;
@@ -176,9 +256,11 @@ function render() {
   document.getElementById("activity-text").textContent = total
     ? `Active ${week} of the last 7 days · ${total} of the last 28.` : "Fresh start — one short session today is plenty.";
   plan();
+  renderGuide();
 }
-KG.api("/api/today").then(t => { T = t; render(); })
-  .catch(e => KG.toast("⚠️ " + esc(e.message) + " — is <code>kg serve</code> running?", { error: true, ms: 0 }));
+async function load() { T = await KG.api("/api/today"); render(); }
+load().catch(e => KG.toast("⚠️ " + esc(e.message) + " — is <code>kg serve</code> running?", { error: true, ms: 0 }));
+document.addEventListener("kg-shown", () => load().catch(() => {}));
 </script>
 </body>
 </html>

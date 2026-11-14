@@ -1,0 +1,213 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Jobs · Knowledge Graph</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="https://unpkg.com/marked@12.0.2/marked.min.js"></script>
+<script src="https://unpkg.com/dompurify@3.1.6/dist/purify.min.js"></script>
+<script>/*__COMMON_JS__*/</script>
+<style>
+/*__COMMON_CSS__*/
+  header { display:flex; align-items:center; gap:.75rem; padding:.6rem 1.25rem; border-bottom:1px solid var(--border); background:var(--panel); position:sticky; top:0; z-index:5; flex-wrap:wrap; }
+  header .grow { flex:1; }
+  .layout { display:grid; grid-template-columns: 360px 1fr; min-height:calc(100vh - 3.3rem); }
+  aside { border-right:1px solid var(--border); background:var(--panel); padding:1rem; overflow:auto; }
+  main { padding:1.25rem 1.5rem 4rem; min-width:0; }
+  h1 { font-size:1.4rem; margin:.2rem 0 .4rem; }
+  h2 { font-size:.8125rem; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); margin:1.25rem 0 .5rem; }
+  label.f { display:block; font-size:.8125rem; color:var(--muted); margin:.5rem 0 .2rem; }
+  aside select, aside input[type=text], aside textarea, aside input[type=search] { width:100%; }
+  textarea { min-height:6rem; resize:vertical; }
+  .list { list-style:none; padding:0; margin:0; }
+  .list li button { width:100%; text-align:left; display:flex; flex-direction:column; gap:.2rem; padding:.55rem .6rem; margin:.25rem 0; background:var(--bg); }
+  .list li button[aria-current="true"] { border-color:var(--accent); background:var(--accent-bg); }
+  .list .t { font-weight:600; }
+  .bar { height:.5rem; border-radius:99px; background:var(--panel2); border:1px solid var(--border); overflow:hidden; }
+  .bar > i { display:block; height:100%; background:var(--accent); }
+  .card2 { border:1px solid var(--border); border-radius:10px; padding:.6rem .8rem; margin:.5rem 0; background:var(--panel); }
+  .skill { display:grid; grid-template-columns: 1fr auto; gap:.2rem .8rem; padding:.55rem 0; border-bottom:1px solid var(--border); }
+  .skill .why { grid-column:1 / -1; color:var(--muted); font-size:.875rem; }
+  .skill .acts { display:flex; gap:.35rem; flex-wrap:wrap; align-items:center; }
+  .acts a { display:inline-flex; align-items:center; min-height:1.9rem; padding:0 .6rem; border:1px solid var(--border); border-radius:6px; text-decoration:none; color:var(--fg); background:var(--panel2); font-size:.8125rem; }
+  .big { font-size:2.2rem; font-weight:700; }
+  .md { max-width:80ch; line-height:1.6; }
+  .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:1rem; }
+  .empty { color:var(--muted); }
+  .spinner { width:.9rem; height:.9rem; border:2px solid var(--border); border-top-color:var(--accent); border-radius:50%; animation:spin .8s linear infinite; }
+  .thinking { display:flex; gap:.6rem; align-items:center; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+  @media (max-width: 900px) { .layout { grid-template-columns:1fr; } aside { border-right:0; border-bottom:1px solid var(--border); } .grid2 { grid-template-columns:1fr; } }
+</style>
+</head>
+<body>
+<header>
+  <nav class="appnav" aria-label="Main">
+    <a href="/">🏠 Today</a><a href="/graph">🧠 Graph</a><a href="/build">🛠 Build</a><a href="/arena">🏁 Challenges</a><a href="/jobs" aria-current="page">💼 Jobs</a>
+  </nav>
+  <span class="grow"></span>
+  <button id="theme" class="ghost"></button>
+</header>
+<div class="layout">
+  <aside aria-label="Roles">
+    <div class="card">
+      <h2 style="margin-top:0">➕ Target a role</h2>
+      <label class="f" for="title">Job title</label>
+      <input type="text" id="title" placeholder="e.g. Systems Software Engineer">
+      <label class="f" for="jd">…or paste a job description (optional)</label>
+      <textarea id="jd" placeholder="Paste the posting text here for exact requirements"></textarea>
+      <div class="row" style="margin-top:.6rem"><button class="primary" id="analyze">Analyse role</button>
+        <button id="suggest" type="button">✨ Suggest roles for me</button></div>
+      <p class="muted" style="margin-bottom:0">The AI tutor lists what the role needs and maps each skill to your graph. Missing skills can be added as new concepts.</p>
+    </div>
+    <div id="ideas"></div>
+    <h2>🔎 Search live jobs</h2>
+    <form id="board-form" class="row">
+      <label for="bq" class="sr-only">Search</label>
+      <input type="search" id="bq" placeholder="c++, security engineer, rust…" style="flex:1">
+      <button class="primary">Search</button>
+    </form>
+    <label class="row muted" style="margin:.4rem 0"><input type="checkbox" id="remote"> Remote only</label>
+    <ul class="list" id="board"></ul>
+    <h2>Your target roles</h2>
+    <ul class="list" id="list"></ul>
+  </aside>
+  <main id="main">
+    <h1>💼 Jobs &amp; skill gaps</h1>
+    <p class="muted md">Pick roles you want. Each shows how ready your graph makes you, and exactly what to learn next. Roles appear in the
+      <a href="/graph">graph</a> linked to the concepts they need.</p>
+    <div id="detail" aria-live="polite"></div>
+  </main>
+</div>
+<script>
+const { esc, md } = KG;
+const $ = id => document.getElementById(id);
+let O = null, current = null, busy = false;
+KG.themeButton($("theme"));
+
+async function run(label, fn) {
+  if (busy) return;
+  busy = true; document.querySelectorAll("button").forEach(b => b.disabled = true);
+  KG.busy(true, label);
+  const t0 = Date.now();
+  const t = KG.toast(`<div class="thinking"><span class="spinner" aria-hidden="true"></span><span class="lbl"></span></div>`, { ms: 0 });
+  const tick = () => t.querySelector(".lbl").textContent = `${label} ${Math.round((Date.now() - t0) / 1000)}s`;
+  tick(); const timer = setInterval(tick, 1000);
+  try { return await fn(); }
+  catch (e) { KG.toast("⚠️ " + esc(e.message), { error: true, ms: 9000 }); }
+  finally { clearInterval(timer); t.remove(); busy = false; KG.busy(false); document.querySelectorAll("button").forEach(b => b.disabled = false); }
+}
+
+const STATUS_CLS = { target: "info", applied: "info", interviewing: "warn", offer: "good", rejected: "bad", dropped: "bad" };
+function renderList() {
+  $("list").innerHTML = O.roles.length ? O.roles.map(r => `<li><button type="button" data-slug="${esc(r.slug)}" aria-current="${r.slug === current}">
+      <span class="t">${esc(r.title)}</span>
+      <span class="muted">${esc(r.company || "—")} · ${esc(r.level || "")}</span>
+      <span class="row"><span class="badge ${STATUS_CLS[r.status] || "info"}">${esc(r.status)}</span><b>${r.readiness.percent}% ready</b></span>
+      <span class="bar" aria-hidden="true"><i style="width:${r.readiness.percent}%"></i></span></button></li>`).join("")
+    : '<li class="empty">No roles yet — add one above.</li>';
+  $("list").querySelectorAll("[data-slug]").forEach(b => b.onclick = () => open(b.dataset.slug));
+}
+async function load() { O = await KG.api("/api/jobs"); renderList(); }
+
+async function open(slug) {
+  current = slug; history.replaceState(null, "", "#" + slug); renderList();
+  try { show(await KG.api(`/api/jobs/${slug}`)); } catch (e) { KG.toast("⚠️ " + esc(e.message), { error: true }); }
+}
+
+const SK_ICON = { covered: "✅", learning: "🟡", missing: "⬜", unmapped: "➕" };
+function show(d) {
+  current = d.slug;
+  const r = d.readiness;
+  const skillHtml = d.skills.map(s => {
+    const acts = s.concept
+      ? `<a href="/graph?learn=${encodeURIComponent(s.concept)}">📘 Learn</a><a href="/graph?assess=${encodeURIComponent(s.concept)}">🎯 Quiz</a><a href="/graph?focus=${encodeURIComponent(s.concept)}">🧠 Graph</a>`
+      : s.new_concept ? `<span class="muted">New concept: ${esc(s.new_concept.title)}</span>` : "";
+    return `<div class="skill"><div><span aria-hidden="true">${SK_ICON[s.status]}</span> <b>${esc(s.name)}</b>
+        <span class="badge ${s.importance === "must" ? "bad" : s.importance === "should" ? "warn" : "info"}">${esc(s.importance)}</span>
+        ${s.concept ? `<span class="muted">→ ${esc(s.concept_title)} · mastery ${s.mastery}/5</span>` : ""}</div>
+      <div class="acts">${acts}</div><div class="why">${esc(s.why)}</div></div>`;
+  }).join("");
+  $("detail").innerHTML = `
+    <div class="card2">
+      <div class="row"><h1 style="margin:0">${esc(d.title)}</h1>
+        ${d.url ? `<a href="${esc(d.url)}" target="_blank" rel="noopener noreferrer">Posting ↗</a>` : ""}</div>
+      <p class="muted">${esc(d.company || "")} ${d.company ? "·" : ""} ${esc(d.level || "")} · ${esc(d.domain)}</p>
+      <div class="md">${md(d.summary)}</div>
+      <div class="row" style="margin-top:.6rem"><label for="status" class="muted">Status</label>
+        <select id="status">${O.statuses.map(s => `<option ${s === d.status ? "selected" : ""}>${s}</option>`).join("")}</select></div>
+    </div>
+    <div class="grid2">
+      <div class="card2"><span class="muted">Readiness (weighted by importance)</span><div class="big">${r.percent}%</div>
+        <div class="bar"><i style="width:${r.percent}%"></i></div>
+        <p class="muted" style="margin-bottom:0">✅ ${r.covered} covered · 🟡 ${r.learning} learning · ⬜ ${r.missing} not started · ➕ ${r.unmapped} not in graph</p></div>
+      <div class="card2"><b>Next step</b><p id="next" style="margin:.4rem 0 0"></p></div>
+    </div>
+    ${d.missing_new.length ? `<div class="card2"><b>${d.missing_new.length} skills aren't in your graph yet</b>
+      <p class="muted">${d.missing_new.map(esc).join(" · ")}</p><button class="primary" id="addsk">➕ Add them to the graph</button></div>` : ""}
+    <h2>Skills required</h2>${skillHtml}
+    <div class="grid2">
+      <div><h2>Interview topics</h2><ul>${d.interview_topics.map(x => `<li>${esc(x)}</li>`).join("")}</ul></div>
+      <div><h2>Portfolio projects to build</h2><ul>${d.portfolio.map(x => `<li>${esc(x)}</li>`).join("")}</ul></div>
+    </div>`;
+  const first = d.skills.find(s => s.concept && s.status !== "covered");
+  $("next").innerHTML = first
+    ? `Learn <b>${esc(first.concept_title)}</b> (${esc(first.importance)}). <a href="/graph?learn=${encodeURIComponent(first.concept)}">Start a lesson →</a>`
+    : d.missing_new.length ? "Add the missing skills to your graph, then start learning them." : "You cover every mapped skill. Build a portfolio project or apply!";
+  $("status").onchange = async e => { await KG.api(`/api/jobs/${d.slug}/status`, { status: e.target.value }); await load(); };
+  const add = $("addsk");
+  if (add) add.onclick = () => run("Adding skills to the graph…", async () => {
+    const r2 = await KG.api(`/api/jobs/${d.slug}/add-skills`, {});
+    KG.toast(`✅ Added ${r2.created.length} concept(s) to the graph.`);
+    await load(); show(r2.detail);
+  });
+}
+
+$("analyze").onclick = () => {
+  const title = $("title").value.trim(), jd = $("jd").value.trim();
+  if (!title && !jd) return KG.toast("Enter a job title or paste a description.", { error: true });
+  run("Analysing the role…", async () => {
+    const d = await KG.api("/api/jobs/analyze", { title, jd });
+    $("title").value = ""; $("jd").value = "";
+    await load(); show(d);
+  });
+};
+
+$("suggest").onclick = () => run("Finding roles that fit you…", async () => {
+  const r = await KG.api("/api/jobs/suggest", {});
+  $("ideas").innerHTML = `<h2>✨ Suggested for you</h2>` + r.roles.map((x, i) => `<div class="card2"><b>${esc(x.title)}</b>
+    <span class="badge info">${esc(x.level)}</span> <span class="muted">fit ${"★".repeat(x.fit)}${"☆".repeat(5 - x.fit)}</span>
+    <p style="margin:.3rem 0">${esc(x.why)}</p><p class="muted" style="margin:.2rem 0">Missing: ${esc(x.gap_hint)}</p>
+    <button type="button" data-i="${i}">Analyse this role</button></div>`).join("");
+  $("ideas").querySelectorAll("[data-i]").forEach(b => b.onclick = () => {
+    $("title").value = r.roles[+b.dataset.i].title; $("jd").value = ""; $("analyze").click();
+  });
+});
+
+let boardJobs = [];
+$("board-form").onsubmit = e => {
+  e.preventDefault();
+  run("Searching job boards…", async () => {
+    boardJobs = (await KG.api("/api/jobs/board", { query: $("bq").value, remote: $("remote").checked })).jobs;
+    $("board").innerHTML = boardJobs.length ? boardJobs.map((j, i) => `<li><div class="card2">
+        <b>${esc(j.title)}</b><div class="muted">${esc(j.company)} · ${esc(j.location)} · ${esc(j.source)} · ${esc(j.posted)}</div>
+        <div class="row" style="margin-top:.35rem"><a href="${esc(j.url)}" target="_blank" rel="noopener noreferrer">Open ↗</a>
+        <button type="button" data-j="${i}">Analyse</button></div></div></li>`).join("")
+      : '<li class="empty">No matches. Try a broader search.</li>';
+    $("board").querySelectorAll("[data-j]").forEach(b => b.onclick = () => run("Analysing the posting…", async () => {
+      const d = await KG.api("/api/jobs/board/analyze", { id: boardJobs[+b.dataset.j].id });
+      await load(); show(d);
+    }));
+  });
+};
+
+(async () => {
+  try { await load(); } catch (e) { KG.toast("⚠️ " + esc(e.message), { error: true }); return; }
+  const h = location.hash.slice(1);
+  if (h && O.roles.some(r => r.slug === h)) open(h);
+  KG.onRoute(async u => { await load(); const s = u.hash.slice(1); if (s && O.roles.some(r => r.slug === s)) open(s); });
+  document.addEventListener("kg-shown", async () => { await load().catch(() => {}); if (current && !busy) open(current); });
+})();
+</script>
+</body>
+</html>

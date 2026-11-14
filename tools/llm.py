@@ -198,9 +198,50 @@ def _github_token() -> str | None:
 class CopilotProvider(Provider):
     label = "GitHub Copilot"
 
+    # tried in order when the configured model isn't offered (or is rejected at run time) on this Copilot plan
+    FALLBACKS = ["claude-sonnet-5", "claude-sonnet-4.6", "claude-sonnet-4.5", "gpt-5.6-terra", "gpt-5.3-codex",
+                 "claude-haiku-4.5", "auto"]
+
     def __init__(self, model: str):
         super().__init__(model)
         self.client = None
+        self.verified = ""        # model that last answered a probe
+        self.rejected = False     # set when the backend says the model is not available right now
+        self._model_lock = asyncio.Lock()
+
+    async def _model_ids(self) -> list[str]:
+        try:
+            return [getattr(m, "id", str(m)) for m in await self.client.list_models()]
+        except Exception:
+            return []
+
+    async def _ensure_model(self) -> None:
+        """Make sure self.model really answers (a listed model can still be rejected at run time); else fall back."""
+        if self.verified == self.model and not self.rejected:
+            return
+        async with self._model_lock:
+            if self.verified == self.model and not self.rejected:
+                return
+            from copilot.session import PermissionHandler
+            ids = await self._model_ids()
+            order = [self.model] + [m for m in self.FALLBACKS if m != self.model and (not ids or m in ids)]
+            for m in order:
+                s = None
+                try:
+                    s = await self.client.create_session(on_permission_request=PermissionHandler.approve_all,
+                                                         model=m, available_tools=[])
+                    await s.send_and_wait("Reply with the single word OK.", timeout=60)
+                except Exception:
+                    continue
+                finally:
+                    if s:
+                        with contextlib.suppress(Exception):
+                            await s.disconnect()
+                if m != self.model:
+                    print(f"model {self.model} is not available; using {m}")
+                self.model, self.verified, self.rejected = m, m, False
+                return
+            raise TutorError("no Copilot model is available right now; check your Copilot sign-in/plan and retry", 503)
 
     async def start(self) -> None:
         from copilot import CopilotClient
@@ -216,6 +257,9 @@ class CopilotProvider(Provider):
             raise RuntimeError(
                 "GitHub Copilot didn't start within a minute. Sign in with `gh auth login` (an account with Copilot)"
                 + ("" if token else " — no GitHub token was found") + ", or pick another tutor.provider.") from None
+        ids = await self._model_ids()
+        if ids and self.model not in ids:
+            self.model = next((m for m in self.FALLBACKS if m in ids), ids[0])
 
     async def stop(self) -> None:
         if self.client:
@@ -226,6 +270,8 @@ class CopilotProvider(Provider):
         from copilot import ToolSet
         from copilot.session import PermissionHandler
         from copilot.tools import Tool, ToolResult
+
+        await self._ensure_model()
 
         def wrap(t: ToolDef):
             async def handler(inv):
@@ -245,15 +291,21 @@ class CopilotProvider(Provider):
             kwargs["available_tools"] = names.to_list()
         else:
             kwargs["available_tools"] = []
-        return CopilotChat(await self.client.create_session(**kwargs))
+        return CopilotChat(await self.client.create_session(**kwargs), self)
 
 
 class CopilotChat(ChatSession):
-    def __init__(self, session):
+    def __init__(self, session, provider: CopilotProvider):
         self.session = session
+        self.provider = provider
 
     async def _send(self, prompt: str, timeout: float) -> str:
-        event = await self.session.send_and_wait(prompt, timeout=timeout)
+        try:
+            event = await self.session.send_and_wait(prompt, timeout=timeout)
+        except Exception as exc:
+            if "not available" in str(exc):   # re-probe and fall back before the next session opens
+                self.provider.rejected = True
+            raise
         return (event.data.content if event else "") or ""
 
     async def close(self) -> None:

@@ -46,7 +46,7 @@
 </head>
 <body>
 <header>
-  <nav class="appnav" aria-label="Main"><a href="/">🏠 Today</a><a href="/graph">🧠 Graph</a><a href="/build" aria-current="page">🛠 Build</a><a href="/arena">🏁 Challenges</a></nav>
+  <nav class="appnav" aria-label="Main"><a href="/">🏠 Today</a><a href="/graph">🧠 Graph</a><a href="/build" aria-current="page">🛠 Build</a><a href="/arena">🏁 Challenges</a><a href="/jobs">💼 Jobs</a></nav>
   <h1>Projects &amp; Open Source</h1>
   <div class="row" role="tablist" aria-label="Build sections">
     <button class="tabbtn" role="tab" aria-selected="true" aria-controls="overview" data-tab="overview">📊 My work</button>
@@ -153,12 +153,12 @@ function status(text, err) {
 }
 async function run(label, fn) {
   if (busy) return;
-  busy = true; document.querySelectorAll("button.primary").forEach(b => b.disabled = true);
+  busy = true; KG.busy(true, label); document.querySelectorAll("button.primary").forEach(b => b.disabled = true);
   const t0 = Date.now(); status(label);
   const timer = setInterval(() => status(`${label} ${Math.round((Date.now() - t0) / 1000)}s`), 1000);
   try { await fn(); status(""); }
   catch (e) { status("⚠️ " + e.message, true); }
-  finally { clearInterval(timer); busy = false; document.querySelectorAll("button.primary").forEach(b => b.disabled = false); }
+  finally { clearInterval(timer); busy = false; KG.busy(false); document.querySelectorAll("button.primary").forEach(b => b.disabled = false); }
 }
 const concepts = slugs => slugs.length ? slugs.map(s => `<span class="pill">${esc(titles[s] || s)}</span>`).join("") : '<span class="muted">—</span>';
 const fit = n => "★".repeat(n) + "☆".repeat(5 - n);
@@ -336,6 +336,7 @@ $("ideas-btn").onclick = () => run("Designing project ideas for you…", async (
 
 KG.themeButton($("theme"));
 load().catch(e => status("⚠️ " + e.message + " — is `kg serve` running?", true));
+document.addEventListener("kg-shown", () => { if (!busy) load().catch(() => {}); });
 </script>
 </body>
 </html>
