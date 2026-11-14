@@ -1,6 +1,6 @@
 """Grow the graph on demand: turn anything the learner wants to learn into concept notes.
 
-`propose(text)` checks the existing graph first, then asks Copilot for the concept plus any missing prerequisite
+`propose(text)` checks the existing graph first, then asks the AI tutor for the concept plus any missing prerequisite
 concepts (prerequisites first), linked to existing concepts. Nothing is written until `create()` is called with the
 (possibly trimmed) proposal. `ideas()` suggests worthwhile next topics that aren't in the graph yet.
 """

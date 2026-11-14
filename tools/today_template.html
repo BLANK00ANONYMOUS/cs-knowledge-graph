@@ -193,7 +193,7 @@ function renderGuide() {
       first ? `<a class="btn primary" href="/graph?assess=${q(first.slug)}&n=5">🎓 Quiz me on ${esc(first.title)}</a>` : `<a class="btn" href="/graph">Open the graph</a>`],
     ["lesson", "Learn your first concept", "A bite-size lesson with quick checks and a hands-on exercise — no book reading.",
       first ? `<a class="btn primary" href="/graph?learn=${q(first.slug)}">📘 Learn ${esc(first.title)}</a>` : `<a class="btn" href="/graph">Open the graph</a>`],
-    ["topic", "Add something you're curious about", "There are thousands of topics; your graph grows only with what you choose. Copilot adds missing prerequisites too.",
+    ["topic", "Add something you're curious about", "There are thousands of topics; your graph grows only with what you choose. The AI tutor adds missing prerequisites too.",
       `<form class="addform" id="add-form1"><label for="add-text1" class="sr-only">Topic</label>
         <input id="add-text1" type="text" maxlength="200" placeholder="e.g. Docker, RSA, transformers, Bayes' theorem"><button class="primary">➕ Add</button></form>`],
     ["role", "Choose a job you're aiming for", "See the skills it needs and how ready you are; missing skills become graph concepts.",

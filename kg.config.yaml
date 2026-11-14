@@ -3,15 +3,32 @@ vault_dir: vault
 # Folder with your PDF books (can be overridden with the KG_BOOKS_DIR env var).
 books_dir: "books"   # folder with your own PDFs (never committed)
 
-# AI tutor (kg serve). Uses your GitHub Copilot subscription via the Copilot SDK.
+# AI tutor (kg serve). Pick one backend:
+#   claude-code  your Claude subscription through the Claude Code CLI (bundled with the Claude desktop app).
+#                No API key: sign in once with `claude auth login`. model: sonnet | opus | haiku or a full id.
+#                Tools (book search) aren't available here, so lessons won't cite your PDFs.
+#   copilot      GitHub Copilot subscription (needs `gh auth login`). model: any Copilot model id, e.g. claude-opus-5.5
+#   anthropic    Claude API. Set ANTHROPIC_API_KEY. model: e.g. claude-sonnet-5-5
+#   openai       any OpenAI-compatible API. Set OPENAI_API_KEY (not needed for local servers).
+#                model: the provider's model id. base_url: e.g. https://generativelanguage.googleapis.com/v1beta/openai/
+#                (Gemini), http://localhost:11434/v1 (Ollama), https://api.openai.com/v1 (default if omitted)
+# Keys always come from environment variables, never from this file. `kg serve --provider X` overrides provider
+# (and then ignores `model` below, which belongs to the configured provider, unless you also pass --model).
 tutor:
-  model: claude-sonnet-5.5   # any Copilot model id, e.g. gpt-6.1-sol, claude-opus-5.5
+  provider: claude-code      # claude-code | copilot | anthropic | openai
+  model: sonnet
+  # claude_path: /path/to/claude          # claude-code only, if it isn't found automatically
+  # base_url: http://localhost:11434/v1   # openai provider only
+  # api_key_env: OPENAI_API_KEY           # env var holding the key, if you use a different one
   questions: 6               # MCQs per assessment
   port: 8765
   speech_lang: en-IN         # voice dictation language (BCP-47), e.g. en-US, hi-IN
 
 # Build page: projects + open-source contributions (read-only public GitHub data).
+# Nobody's account is fixed here: whoever opens the app connects their own GitHub on the Build page
+# (saved per machine in .kg/, never committed). An existing `gh auth login` / GITHUB_TOKEN is picked up automatically.
 github:
-  username: BLANK00ANONYMOUS   # personal account to track (your work account is EMU and can't contribute publicly)
+  # client_id: Ov23li...   # optional: an OAuth App's client ID (device flow enabled) to show "Sign in with GitHub".
+  #                        # Not a secret. Without it, people connect with their username or a personal access token.
   languages: [Python, C, C++, Rust, Go]
   min_stars: 50

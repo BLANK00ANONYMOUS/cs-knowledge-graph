@@ -2,7 +2,7 @@
 
 A role is a vault note (type `role`). Its `skills` list records what the role needs (importance, the graph concept
 that covers it, or a proposed new concept). `requires:` links the covering concepts so roles show up in the graph.
-Role requirements come from Copilot (market knowledge for a title, or an analysed job description).
+Role requirements come from the AI tutor (market knowledge for a title, or an analysed job description).
 """
 from __future__ import annotations
 

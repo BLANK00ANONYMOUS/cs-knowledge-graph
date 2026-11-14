@@ -1,10 +1,10 @@
 """Development challenges arena: AI-set practical problems, a local judge, and per-track ratings.
 
-A challenge is a small realistic engineering task (CLI tool, parser, stateful store, REST API...). Copilot writes
+A challenge is a small realistic engineering task (CLI tool, parser, stateful store, REST API...). The AI tutor writes
 the statement, starter code, tests and a hidden Python reference solution; the tests are validated by running the
 reference before the challenge is published. The learner solves it in any language from LANGUAGES whose toolchain
 is installed (tests talk to the program only through stdin/stdout, args, files, exit codes or HTTP), the judge runs
-the public + hidden tests (Codeforces-style verdicts), then Copilot reviews the code.
+the public + hidden tests (Codeforces-style verdicts), then the AI tutor reviews the code.
 """
 from __future__ import annotations
 

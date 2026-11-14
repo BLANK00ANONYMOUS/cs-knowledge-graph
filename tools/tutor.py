@@ -1,6 +1,6 @@
 """AI tutor: adaptive MCQ assessment with reasoning grading + book-grounded study plans.
 
-Powered by the GitHub Copilot SDK (uses the signed-in user's Copilot subscription).
+The model backend is pluggable (see llm.py): GitHub Copilot, Anthropic (Claude) or any OpenAI-compatible API.
 """
 from __future__ import annotations
 
@@ -10,15 +10,12 @@ import json
 import re
 import uuid
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Literal
 
-from copilot import CopilotClient, ToolSet
-from copilot.session import CopilotSession, PermissionHandler
-from copilot.tools import Tool, ToolInvocation, ToolResult
 from pydantic import BaseModel, ConfigDict, Field
 
 import kg
+from llm import ChatSession, Provider, TutorError, ToolDef
 
 LETTERS = "ABCD"
 CONFIDENCE = {"guess": "Guessing", "think": "Think so", "sure": "Sure"}
@@ -155,7 +152,7 @@ class Assessment:
     topic: str
     candidates: list[str]
     total: int
-    session: CopilotSession | None = None
+    session: ChatSession | None = None
     questions: list[MCQ] = field(default_factory=list)
     answers: list[dict] = field(default_factory=list)
     seen_pages: set[tuple[str, int]] = field(default_factory=set)
@@ -169,34 +166,6 @@ class Assessment:
         return self.questions[-1] if len(self.questions) > len(self.answers) else None
 
 
-def _github_token() -> str | None:
-    """Token for Copilot: env var first, otherwise the `gh` CLI login."""
-    import os
-    import shutil
-    import subprocess
-    for var in ("COPILOT_GITHUB_TOKEN", "GH_TOKEN", "GITHUB_TOKEN"):
-        if os.environ.get(var):
-            return os.environ[var]
-    gh = shutil.which("gh")
-    if not gh:  # the Copilot desktop app bundles its own gh.exe that isn't on PATH
-        local = os.environ.get("LOCALAPPDATA", "")
-        found = sorted(Path(local).glob("copilot-desktop-gh-*/gh.exe")) if local else []
-        gh = str(found[-1]) if found else None
-    if gh:
-        try:
-            out = subprocess.run([gh, "auth", "token"], capture_output=True, text=True, timeout=15)
-            return out.stdout.strip() or None
-        except (OSError, subprocess.SubprocessError):
-            return None
-    return None
-
-
-class TutorError(Exception):
-    def __init__(self, message: str, status: int = 400):
-        super().__init__(message)
-        self.status = status
-
-
 def _extract_json(text: str) -> str:
     text = text.strip()
     if text.startswith("```"):  # only strip an OUTER fence; JSON strings may contain fenced code themselves
@@ -206,32 +175,23 @@ def _extract_json(text: str) -> str:
     return text[start:end + 1] if start != -1 and end > start else text
 
 
-MODEL_REJECTED = False   # set when the Copilot backend says the model is not available right now
-
-
-async def ask_json(session: CopilotSession, prompt: str, schema: type[BaseModel], timeout: float = 240):
+async def ask_json(session: ChatSession, prompt: str, schema: type[BaseModel], timeout: float = 240):
     """Ask for a JSON object matching `schema` as plain text and validate it with Pydantic.
 
-    The SDK's native structured-output mode returns empty-but-valid objects with some models (Claude), so we
+    Native structured-output modes differ between providers (and some return empty-but-valid objects), so we
     describe the schema in the prompt instead, and retry once with the validation error."""
     instructions = ("\n\nRespond with ONLY a JSON object (no prose, no code fences) that matches this JSON Schema. "
                     "Fill every field with real, specific content:\n"
                     + json.dumps(schema.model_json_schema(), ensure_ascii=False))
-    global MODEL_REJECTED
-    try:
-        event = await session.send_and_wait(prompt + instructions, timeout=timeout)
-    except Exception as exc:
-        MODEL_REJECTED = MODEL_REJECTED or "not available" in str(exc)
-        raise
-    text = event.data.content if event else ""
+    text = await session.send(prompt + instructions, timeout=timeout)
     try:
         return schema.model_validate_json(_extract_json(text or ""))
     except ValueError as exc:
-        event = await session.send_and_wait(
+        text = await session.send(
             f"That was not valid JSON for the schema ({str(exc)[:500]}). Reply again with ONLY the corrected JSON object.",
             timeout=timeout)
         try:
-            return schema.model_validate_json(_extract_json(event.data.content if event else ""))
+            return schema.model_validate_json(_extract_json(text or ""))
         except ValueError as exc2:
             raise TutorError(f"the model returned malformed output; please retry ({str(exc2)[:120]})", 502)
 
@@ -245,90 +205,31 @@ def public_question(a: Assessment, q: MCQ) -> dict:
 # --------------------------------------------------------------------------- engine
 
 class Tutor:
-    def __init__(self, model: str, questions: int = 6, max_live_sessions: int = 8):
-        self.model = model
-        self._verified = ""
-        self._model_lock = asyncio.Lock()
+    def __init__(self, provider: Provider, questions: int = 6, max_live_sessions: int = 8):
+        self.provider = provider
         self.default_questions = questions
         self.max_live_sessions = max_live_sessions
-        self.client: CopilotClient | None = None
         self.assessments: dict[str, Assessment] = {}
 
+    @property
+    def model(self) -> str:   # the provider may switch models at run time (Copilot falls back when one is unavailable)
+        return self.provider.model
+
     async def start(self) -> None:
-        (kg.ROOT / ".kg" / "copilot").mkdir(parents=True, exist_ok=True)
-        kwargs = {}
-        token = _github_token()
-        if token:  # the server may be launched from a terminal that has no GH_TOKEN in its environment
-            kwargs["github_token"] = token
-        self.client = CopilotClient(mode="empty", base_directory=str(kg.ROOT / ".kg" / "copilot"), **kwargs)
-        await self.client.start()
-        try:
-            ids = [getattr(m, "id", str(m)) for m in await self.client.list_models()]
-            if ids and self.model not in ids:
-                self.model = self._pick_model(ids)
-        except Exception:
-            pass
-
-    FALLBACKS = ["claude-sonnet-5", "claude-sonnet-4.6", "claude-sonnet-4.5", "gpt-5.6-terra", "gpt-5.3-codex", "claude-haiku-4.5", "auto"]
-
-    def _pick_model(self, ids: list[str], skip: str = "") -> str:
-        for m in self.FALLBACKS:
-            if m in ids and m != skip:
-                return m
-        return next((m for m in ids if m != skip), self.model)
+        await self.provider.start()
 
     async def stop(self) -> None:
         for a in self.assessments.values():
             await self._close_session(a)
-        if self.client:
-            await self.client.stop()
+        await self.provider.stop()
 
     async def ask_typed(self, system: str, prompt: str, schema: type[BaseModel], timeout: float = 300):
         """One-shot structured call in a fresh tool-less session."""
-        await self._ensure_model()
-        session = await self.client.create_session(
-            on_permission_request=PermissionHandler.approve_all, model=self.model, available_tools=[],
-            system_message={"mode": "replace", "content": system})
+        session = await self.provider.open_session(system, [])
         try:
             return await ask_json(session, prompt, schema, timeout=timeout)
         finally:
-            try:
-                await session.disconnect()
-            except Exception:
-                pass
-
-    async def _ensure_model(self) -> None:
-        """Make sure self.model really answers (a listed model can still be rejected at run time); else fall back."""
-        global MODEL_REJECTED
-        if self._verified == self.model and not MODEL_REJECTED:
-            return
-        async with self._model_lock:
-            if self._verified == self.model and not MODEL_REJECTED:
-                return
-            try:
-                ids = [getattr(m, "id", str(m)) for m in await self.client.list_models()]
-            except Exception:
-                ids = []
-            order = [self.model] + [m for m in self.FALLBACKS if m != self.model and (not ids or m in ids)]
-            for m in order:
-                s = None
-                try:
-                    s = await self.client.create_session(on_permission_request=PermissionHandler.approve_all, model=m,
-                                                         available_tools=[])
-                    await s.send_and_wait("Reply with the single word OK.", timeout=60)
-                except Exception:
-                    continue
-                finally:
-                    if s:
-                        try:
-                            await s.disconnect()
-                        except Exception:
-                            pass
-                if m != self.model:
-                    print(f"model {self.model} is not available; using {m}")
-                self.model, self._verified, MODEL_REJECTED = m, m, False
-                return
-            raise TutorError("no Copilot model is available right now; check your Copilot sign-in/plan and retry", 503)
+            await session.close()
 
     # ---- helpers
 
@@ -340,69 +241,60 @@ class Tutor:
     @staticmethod
     async def _close_session(a: Assessment) -> None:
         if a.session:
-            try:
-                await a.session.disconnect()
-            except Exception:
-                pass
+            await a.session.close()
             a.session = None
 
-    def _tools(self, a: Assessment) -> list[Tool]:
-        async def search_books(inv: ToolInvocation) -> ToolResult:
-            args = inv.arguments or {}
+    def _tools(self, a: Assessment) -> list[ToolDef]:
+        async def search_books(args: dict) -> str:
             query = str(args.get("query", ""))
             try:
                 hits = kg.search(self._notes(), query, kind="book", ref=args.get("book") or None,
                                  limit=int(args.get("limit") or 8), any_term=True)
             except ValueError as exc:
-                return ToolResult(text_result_for_llm=f"error: {exc}", result_type="failure")
+                return f"error: {exc}"
             for h in hits:
                 a.seen_pages.add((h["ref"], int(h["page"])))
             if not hits:
-                return ToolResult(text_result_for_llm="no matches in the learner's library")
-            return ToolResult(text_result_for_llm=json.dumps(
+                return "no matches in the learner's library"
+            return json.dumps(
                 [{"book": h["ref"], "title": h["title"], "page": h["page"], "snippet": h["snippet"]} for h in hits],
-                ensure_ascii=False))
+                ensure_ascii=False)
 
-        async def get_concept(inv: ToolInvocation) -> ToolResult:
-            slug = str((inv.arguments or {}).get("slug", ""))
+        async def get_concept(args: dict) -> str:
+            slug = str(args.get("slug", ""))
             notes = self._notes()
             note = notes.get(slug)
             if not note:
-                return ToolResult(text_result_for_llm=f"no concept '{slug}'", result_type="failure")
+                return f"error: no concept '{slug}'"
             practiced = [n.title for n in notes.values() if slug in n.refs("practices")]
-            return ToolResult(text_result_for_llm=json.dumps({
+            return json.dumps({
                 "slug": slug, "title": note.title, "domain": note.domain, "mastery": note.mastery,
                 "prereqs": note.refs("prereqs"), "related": note.refs("related"),
                 "practiced_in_projects": practiced, "body": note.body[:4000],
-            }, ensure_ascii=False))
+            }, ensure_ascii=False)
 
         return [
-            Tool(name="search_books", skip_permission=True, handler=search_books,
-                 description="Full-text search (BM25) over every page of the learner's PDF library. "
-                             "Returns book slug, page number and a snippet. Use short keyword queries.",
-                 parameters={"type": "object", "properties": {
-                     "query": {"type": "string", "description": "keywords"},
-                     "book": {"type": "string", "description": "optional book slug to restrict to"},
-                     "limit": {"type": "integer", "description": "max results (default 8)"}},
-                     "required": ["query"]}),
-            Tool(name="get_concept", skip_permission=True, handler=get_concept,
-                 description="Read a concept note from the learner's knowledge graph (summary, prereqs, "
-                             "mastery 0-5, notes).",
-                 parameters={"type": "object", "properties": {"slug": {"type": "string"}}, "required": ["slug"]}),
+            ToolDef(name="search_books",
+                    description="Full-text search (BM25) over every page of the learner's PDF library. "
+                                "Returns book slug, page number and a snippet. Use short keyword queries.",
+                    parameters={"type": "object", "properties": {
+                        "query": {"type": "string", "description": "keywords"},
+                        "book": {"type": "string", "description": "optional book slug to restrict to"},
+                        "limit": {"type": "integer", "description": "max results (default 8)"}},
+                        "required": ["query"]},
+                    handler=search_books),
+            ToolDef(name="get_concept",
+                    description="Read a concept note from the learner's knowledge graph (summary, prereqs, "
+                                "mastery 0-5, notes).",
+                    parameters={"type": "object", "properties": {"slug": {"type": "string"}}, "required": ["slug"]},
+                    handler=get_concept),
         ]
 
-    async def _new_session(self, a: Assessment) -> CopilotSession:
-        await self._ensure_model()
+    async def _new_session(self, a: Assessment) -> ChatSession:
         live = sorted((x for x in self.assessments.values() if x.session), key=lambda x: x.created)
         for old in live[: max(0, len(live) - self.max_live_sessions + 1)]:
             await self._close_session(old)
-        return await self.client.create_session(
-            on_permission_request=PermissionHandler.approve_all,
-            model=self.model,
-            tools=self._tools(a),
-            available_tools=ToolSet().add_custom("search_books").add_custom("get_concept").to_list(),
-            system_message={"mode": "replace", "content": SYSTEM_PROMPT},
-        )
+        return await self.provider.open_session(SYSTEM_PROMPT, self._tools(a))
 
     def _get(self, aid: str) -> Assessment:
         a = self.assessments.get(aid)
@@ -721,8 +613,7 @@ class Tutor:
             open_q = a.current
             prefix = (f"(Question {len(a.questions)} is currently open: give hints only and never reveal ITS answer. "
                       "Earlier, already-answered questions may be discussed freely.)\n" if open_q else "")
-            event = await a.session.send_and_wait(prefix + message, timeout=240)
-        return event.data.content if event else ""
+            return await a.session.send(prefix + message, timeout=240)
 
     def apply_ratings(self, aid: str, ratings: dict[str, int]) -> list[dict]:
         a = self.assessments.get(aid)

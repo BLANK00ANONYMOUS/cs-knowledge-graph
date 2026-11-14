@@ -316,7 +316,7 @@
 
 <dialog id="add-dlg" aria-labelledby="add-title">
   <h2 id="add-title">➕ Add a topic to your graph</h2>
-  <p class="muted" style="margin-top:0">Type anything you want to learn. Copilot checks your graph first; if it's new, it plans the concept
+  <p class="muted" style="margin-top:0">Type anything you want to learn. The AI tutor checks your graph first; if it's new, it plans the concept
     plus any missing prerequisites and links them into your map. Nothing is saved until you confirm.</p>
   <form id="add-form" class="row">
     <label for="add-text" class="sr-only">Topic</label>
@@ -523,7 +523,7 @@ function renderList() {
   const list = document.getElementById("clist");
   const addRow = q && KG.served()
     ? `<li><button type="button" id="add-q" style="color:var(--accent)"><span class="t">➕ ${items.length ? "Not here? Add" : "Add"} “${esc(state.query)}” to my graph</span>
-        <span class="m">Copilot plans it + any missing prerequisites</span></button></li>` : "";
+        <span class="m">The tutor plans it + any missing prerequisites</span></button></li>` : "";
   list.innerHTML = (items.length ? items.map(n => {
     const [cls, label] = meta(n);
     return `<li><button type="button" data-id="${esc(n.id)}" aria-current="${n.id === state.focus}">
@@ -1337,7 +1337,7 @@ function route(params) {
     $("add-btn").classList.remove("hidden");
     speechLang = h.speech_lang || speechLang;
     $("tutor-offline").classList.add("hidden"); $("tutor-app").classList.remove("hidden");
-    $("tutor-status").textContent = `Copilot · ${h.model} · ${h.books} book(s)`;
+    $("tutor-status").textContent = `${h.provider || "AI"} · ${h.model} · ${h.books} book(s)`;
     if (![...$("nq").options].some(o => o.value === String(h.questions))) $("nq").add(new Option(h.questions, h.questions));
     $("nq").value = String(h.questions);
   } catch (e) { return; }

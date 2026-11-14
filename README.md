@@ -1,9 +1,10 @@
 # 🧠 Knowledge Graph
 
 **A local learning environment for computer science & mathematics.** Your knowledge is a graph of concepts linked by
-prerequisites. An AI tutor (GitHub Copilot) teaches short lessons, quizzes you with confidence + reasoning, sets your real
-mastery level, and sends you to hands-on challenges, projects, open-source issues and job targets — using your own PDF books
-only as a *fact-checking reference*, so you never have to read them cover to cover.
+prerequisites. An AI tutor (your Claude subscription, GitHub Copilot, or any model API you pick) teaches short lessons,
+quizzes you with confidence + reasoning, sets your real mastery level, and sends you to hands-on challenges, projects,
+open-source issues and job targets — using your own PDF books only as a *fact-checking reference*, so you never have to
+read them cover to cover.
 
 Current focus: **AI · Security · Systems programming** (+ the math underneath). The vault ships with ~80 concepts, 4 roadmaps
 and a starter set of projects; the graph grows with whatever *you* decide to learn.
@@ -34,13 +35,14 @@ and a starter set of projects; the graph grows with whatever *you* decide to lea
 | ⌨ | **CLI** (`kg`) | check / build / ingest / search / progress / next / review / rate / new / judge / serve |
 
 Everything is plain files: **Markdown notes with YAML frontmatter** in `vault/` (open it in Obsidian if you like), a SQLite
-full-text index for your books, and a small local web app. No database server, no cloud service besides Copilot.
+full-text index for your books, and a small local web app. No database server, no cloud service besides the AI provider you choose.
 
 ## Quick start
 
 **Requirements:** Windows 10/11 (the scripts are PowerShell; the app itself is cross-platform Python), Python 3.12+,
-Git, a **GitHub Copilot** subscription (the tutor uses the Copilot SDK — no API keys), and Chrome or Edge.
-Optional: the [GitHub CLI](https://cli.github.com) signed in (`gh auth login`), compilers for the languages you want to practise.
+Git, Chrome or Edge, and **one AI provider** (see [AI providers](#ai-providers)): by default your **Claude subscription**
+through the Claude Code CLI that ships with the Claude desktop app, no API key needed.
+Optional: a GitHub account for the Build page, compilers for the languages you want to practise.
 
 ```powershell
 git clone https://github.com/BLANK00ANONYMOUS/cs-knowledge-graph.git
@@ -52,8 +54,21 @@ cd cs-knowledge-graph
 Then follow the **Start here** checklist on the Today page. In ten minutes you will have picked a focus, taken a placement
 quiz, finished a lesson and added your first topic.
 
-> **Sign-in:** the server finds a GitHub token from `GH_TOKEN`/`GITHUB_TOKEN`, then from `gh auth token`. If the tutor shows
-> *"No GitHub OAuth token"*, run `gh auth login` (or set `GH_TOKEN`) and restart.
+> **Sign-in:** with the default provider, run `claude auth login` once. Your GitHub account is connected separately on
+> **Build → My work** (see [Build](#-build--projects--open-source)); everyone who opens the app uses their own.
+
+### AI providers
+
+Pick the backend with `tutor.provider` in `kg.config.yaml`, or per run with `kg serve --provider <name> [--model <id>]`.
+
+| Provider | What it uses | Setup |
+|---|---|---|
+| `claude-code` (**default**) | Your Claude subscription through the Claude Code CLI (found automatically in the Claude desktop app, or on `PATH`) | `claude auth login` once, no API key |
+| `copilot` | GitHub Copilot through the Copilot SDK; falls back to another model if the configured one is unavailable | `gh auth login` with a Copilot plan |
+| `anthropic` | The Claude API | `ANTHROPIC_API_KEY` |
+| `openai` | Any OpenAI-compatible API: OpenAI, Gemini, Ollama, LM Studio | `OPENAI_API_KEY` and `base_url` (no key for local servers) |
+
+`claude-code` can't run the tutor's book-search tool, so lessons from it leave book citations empty instead of guessing pages.
 
 ### Open it like a normal app (Windows)
 
@@ -115,7 +130,7 @@ remember their size. **Focus mode** hides the graph during a quiz. `/` searches,
 There are thousands of topics; you decide which belong in your head. Type anything — *Docker containers*, *RSA*, *transformers*,
 *Bayes' theorem* — in the graph search, the **➕ Add a topic** button, or the box on Today:
 
-1. Copilot first checks whether an existing concept **already is** that topic and offers to learn it.
+1. The tutor first checks whether an existing concept **already is** that topic and offers to learn it.
 2. Otherwise it designs the new concept **plus only the prerequisite concepts that are missing**, linked to concepts you already have
    (prerequisites first, your topic last, no cycles).
 3. You review the plan and **uncheck anything** you don't want; nothing is written until you press *Add to my graph*.
@@ -127,7 +142,7 @@ There are thousands of topics; you decide which belong in your head. Type anythi
 
 ### 📘 Learn mode
 
-Pick a concept → **📘 Learn**. Copilot writes a bite-size lesson **in its own words**, fact-checked against your PDF library
+Pick a concept → **📘 Learn**. The tutor writes a bite-size lesson **in its own words**, fact-checked against your PDF library
 (it searches the books first and shows the pages it used as *verified* badges — the books are its reference, not your homework):
 
 1. 3–5 short parts, each with a worked example (C/C++ for systems and security, Python for AI and maths) and an instant
@@ -140,7 +155,7 @@ Pick a concept → **📘 Learn**. Copilot writes a bite-size lesson **in its ow
 
 ### 🎓 Quiz mode
 
-A conversation panel next to the graph, powered by **GitHub Copilot via the Copilot SDK**. Click a concept → **Quiz**, or type a topic:
+A conversation panel next to the graph, powered by the [AI provider](#ai-providers) you chose. Click a concept → **Quiz**, or type a topic:
 
 1. **Adaptive questions**, one at a time, as *prediction cards*: pick an option (or **I don't know**), set your **confidence
    slider *before* the answer is revealed**, then explain your reasoning in **Your thinking** (`Enter` submits; 🎤 dictation works).
@@ -159,21 +174,27 @@ uses the browser's Web Speech API (Chrome/Edge; set the language with `tutor.spe
 
 Real learning happens by building.
 
-- **📊 My work** — **Sync from GitHub** pulls the public repos, PRs and issues of the account in `github.username` into the vault:
-  repos → `vault/projects/gh-*.md`, PRs/issues → `vault/contributions/*.md`. Copilot tags each with the concepts it exercises,
+- **📊 My work** — first **connect your GitHub account**: *Sign in with GitHub* (when `github.client_id` is set), a username
+  (public data), or a personal access token (higher rate limits); an existing `gh auth login` or `GITHUB_TOKEN` is picked up
+  automatically. The sign-in is stored only on that machine (`.kg/github_account.json`), so everyone who opens the app uses their
+  own account. **Sync from GitHub** then pulls that account's public repos, PRs and issues into the vault:
+  repos → `vault/projects/gh-<login>-*.md`, PRs/issues → `vault/contributions/*.md`. Synced notes are git-ignored and tagged with
+  the account, so each person sees only their own. The tutor tags each with the concepts it exercises,
   creating `practices` edges, so concepts show *"Practised in projects"* in the graph. Re-syncing only updates state (merged,
   closed, stars, last push) and never overwrites your *What I learned* notes.
 - **🔎 Find issues** — finds healthy repositories (by language, stars, recent activity, good-first-issue counts) and their open,
-  unassigned issues; Copilot ranks them for *you* (fit ★, difficulty, what you'll learn, first steps). **Track** saves one as a
+  unassigned issues; the tutor ranks them for *you* (fit ★, difficulty, what you'll learn, first steps). **Track** saves one as a
   contribution target with a milestone checklist.
-- **💡 Project ideas** — Copilot designs projects around concepts you are ready for or weak in (and recent quiz gaps) with
+- **💡 Project ideas** — the tutor designs projects around concepts you are ready for or weak in (and recent quiz gaps) with
   testable milestones and an open-source angle. **Add** creates `vault/projects/proj-*.md`; tick milestones and move the status
   idea → active → done.
 
 ![Build: your synced projects, the concepts they practise and open-source targets](docs/screenshots/11-build.png)
 
-> A work account that is an Enterprise Managed User cannot contribute to public repositories, so contributions are tracked for
-> your **personal** account through read-only public API calls (authenticated with your `gh` login for rate limits).
+> All GitHub calls are read-only public API calls; signing in only raises rate limits. A work account that is an Enterprise
+> Managed User cannot contribute to public repositories, so connect your **personal** account. For a one-click **Sign in with
+> GitHub** button, create a GitHub OAuth App (Settings → Developer settings → OAuth Apps, tick *Enable Device Flow*) and put its
+> client ID (not a secret) in `github.client_id` or `KG_GITHUB_CLIENT_ID`.
 
 ### 🏁 Challenges — Codeforces for development
 
@@ -181,7 +202,7 @@ Practical development problems instead of algorithm puzzles: CLI tools, parsers 
 security and systems tasks — in the language you want to practise.
 
 1. **Generate** — pick a track (backend / systems / security / ai / tooling), language, difficulty (800–2400, suggested from your
-   rating) and optionally a concept to practise. Copilot writes the statement, interface, idiomatic starter code, public examples,
+   rating) and optionally a concept to practise. The tutor writes the statement, interface, idiomatic starter code, public examples,
    hidden tests and a **hidden Python reference solution**. The challenge is published only after the reference passes every test
    (disagreements get one AI repair round; tests that still disagree are dropped), so the judge can be trusted.
 2. **Solve** in your editor: `challenges/<slug>/solution.<ext>` (`Main.java` for Java; `README.md` has the full statement).
@@ -231,7 +252,7 @@ Aim at something concrete and let the graph close the gap.
 
 - **Add a role** by **title**, by **pasting a job description**, or click **✨ Suggest roles for me** (12 suggestions with Indian
   job-market titles — SDE, Embedded, Firmware, AppSec, SRE, ML… — ranked by fit with your graph and goals).
-- Copilot lists the **skills the role needs** (must / should / nice) and maps each to a concept in your graph. You get a weighted
+- The tutor lists the **skills the role needs** (must / should / nice) and maps each to a concept in your graph. You get a weighted
   **readiness %**, a next step, and **Learn / Quiz / Graph** buttons on every skill.
 - Skills that aren't in the graph yet can be **added as new concepts in one click** (with prerequisites linked to existing concepts).
 - **Search live jobs** uses the free Remotive and Arbeitnow boards (no API key). **Analyse** turns a posting into a role.
@@ -297,25 +318,26 @@ vault_dir: vault
 books_dir: "books"          # folder with your own PDFs (never committed); KG_BOOKS_DIR overrides it
 
 tutor:                      # kg serve
-  model: claude-sonnet-5.5  # any Copilot model id; if it is unavailable the server falls back automatically
+  provider: claude-code     # claude-code | copilot | anthropic | openai (see AI providers)
+  model: sonnet             # model id for that provider (Copilot falls back automatically if unavailable)
   questions: 6              # questions per quiz
   port: 8765
   speech_lang: en-IN        # dictation language (BCP-47)
 
 github:                     # Build + Jobs
-  username: BLANK00ANONYMOUS  # the personal account to track (change this to yours)
+  # client_id: Ov23li...    # optional OAuth App client ID for "Sign in with GitHub" (not a secret)
   languages: [Python, C, C++, Rust, Go]
   min_stars: 50             # for "Find issues"
 ```
 
-Local state (all git-ignored under `.kg/`): the full-text index, the Copilot SDK runtime, hidden challenge tests, `profile.json`
+Local state (all git-ignored under `.kg/`): the full-text index, the Copilot SDK runtime, `github_account.json` (your GitHub sign-in, mode 600), hidden challenge tests, `profile.json`
 (focus areas + onboarding progress), `toolchains.json`, `server.log`.
 
 ## Command line
 
 | Command | What it does |
 |---|---|
-| `kg serve [--open] [--model ID] [--port N]` | The web app: Today, Graph & Tutor, Build, Challenges, Jobs |
+| `kg serve [--open] [--provider NAME] [--model ID] [--port N]` | The web app: Today, Graph & Tutor, Build, Challenges, Jobs |
 | `kg judge <slug> [--submit]` | Judge a development challenge (public tests, or all tests + rating) |
 | `kg next [--domain ai] [-n 10]` | Concepts ready to learn |
 | `kg review` | Concepts due for spaced review |
@@ -338,9 +360,10 @@ plans/  journal/       study plans written by the tutor · short session log
 tools/
   kg.py                CLI + vault model (notes, edges, mastery, spaced review, search, graph data)
   server.py            aiohttp app: pages + JSON API, bound to 127.0.0.1
-  tutor.py             Copilot SDK engine: quizzes, lessons, reports, chat, model verification/fallback
+  llm.py               AI providers (claude-code, copilot, anthropic, openai) behind one chat-session interface
+  tutor.py             tutor engine: quizzes, lessons, reports, chat
   topics.py            "add any topic": existing-concept check, prerequisite planning, topic ideas
-  builder.py           Build page: GitHub sync, issue finder, project ideas (+ shared vault helpers)
+  builder.py           Build page: GitHub sign-in and sync, issue finder, project ideas (+ shared vault helpers)
   arena.py             Challenges: generation, validation, 13-language judge, ratings
   jobs.py              Jobs: role analysis, readiness, live job boards
   launcher.py install.ps1   desktop launcher and shortcut installer
@@ -352,13 +375,13 @@ docs/screenshots/      images used in this README
 ```
 
 The server exposes a small JSON API used by the pages (`/api/graph`, `/api/today`, `/api/assessments`, `/api/lessons`,
-`/api/topics/*`, `/api/build/*`, `/api/arena/*`, `/api/jobs/*`, `/api/profile`, `/api/health`). Pages are templates re-read on
+`/api/topics/*`, `/api/build/*`, `/api/github/*`, `/api/arena/*`, `/api/jobs/*`, `/api/profile`, `/api/health`). Pages are templates re-read on
 every request, so HTML/CSS/JS edits show up on refresh; Python changes need a server restart.
 
 ## Security & privacy
 
 - The server binds to **127.0.0.1 only**, and every state-changing request must carry the `X-KG` header (rejects cross-site requests).
-- Your books, notes and progress stay on your machine. The only external calls are to GitHub Copilot (prompts include concept
+- Your books, notes and progress stay on your machine. The only external calls are to the AI provider you chose (prompts include concept
   notes and book snippets), the public GitHub API (Build), the Remotive/Arbeitnow job APIs (Jobs) and the browser's speech service
   if you use dictation.
 - Job postings, repository text and issue bodies are untrusted: they are wrapped as data in prompts, rendered through
@@ -393,8 +416,10 @@ Design: a calm "ink" look — near-black neutrals, a warm gold accent, serif hea
 
 | Problem | Fix |
 |---|---|
-| `JSON-RPC … No GitHub OAuth token` | Run `gh auth login` (or set `GH_TOKEN`) and restart the server. A stale `gh` login is the usual cause. |
-| `Model "…" is not available` | The server verifies the configured model at startup and before each request and falls back to another one automatically. If it says no model is available, check your Copilot plan/sign-in. |
+| `Not logged in` (claude-code) | Run `claude auth login` (use the CLI inside the Claude desktop app if `claude` isn't on `PATH`), then retry. |
+| `kg serve` exits with a provider error | The message says what is missing: an API key, the SDK (`pip install anthropic` / `openai`), or a model id for `openai`. |
+| `JSON-RPC … No GitHub OAuth token` (copilot) | Run `gh auth login` (or set `GH_TOKEN`) and restart the server. A stale `gh` login is the usual cause. |
+| `Model "…" is not available` | The server verifies the configured model at startup and before each request and falls back to another one automatically. If it says no model is available, check your Copilot plan/sign-in. (Copilot provider only.) |
 | The page looks stale | Hard-refresh (`Ctrl`+`F5`). Python changes need a server restart; use *Knowledge Graph (stop server)* or `Ctrl`+`C`. |
 | Port 8765 is in use | A previous server is still running — stop it, or `kg serve --port 8770`. |
 | A language shows "(not installed)" | Install it (command shown in the page / table above) and reload the page. |
