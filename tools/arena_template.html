@@ -4,8 +4,8 @@
 <meta charset="utf-8">
 <title>Challenges · Knowledge Graph</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<script src="https://unpkg.com/marked@12.0.2/marked.min.js"></script>
-<script src="https://unpkg.com/dompurify@3.1.6/dist/purify.min.js"></script>
+<script src="/vendor/marked.min.js"></script>
+<script src="/vendor/purify.min.js"></script>
 <script>/*__COMMON_JS__*/</script>
 <style>
 /*__COMMON_CSS__*/
@@ -107,12 +107,13 @@ KG.themeButton($("theme"));
 
 function stages(label, steps, cancellable) {
   const ctrl = new AbortController(), t0 = Date.now();
-  const t = KG.toast(`<div class="thinking"><span class="spinner" aria-hidden="true"></span><span class="lbl"></span></div>`, { ms: 0 });
-  if (!cancellable) t.querySelector("button").remove(); else t.querySelector("button").onclick = () => { ctrl.abort(); t.remove(); };
+  const t = KG.toast(`<div class="thinking"><span class="spinner" aria-hidden="true"></span><span class="lbl"></span></div>`, { ms: 0, quiet: true });
+  KG.announce(steps[0]);
+  if (!cancellable) t.querySelector(".toast-x").remove(); else t.querySelector(".toast-x").onclick = () => { ctrl.abort(); t.remove(); };
   const lbl = t.querySelector(".lbl");
   const tick = () => { const s = Math.round((Date.now() - t0) / 1000); lbl.textContent = `${steps[Math.min(steps.length - 1, Math.floor(s / 12))]} ${s}s`; };
   tick(); const timer = setInterval(tick, 1000);
-  return { signal: ctrl.signal, stop: () => { clearInterval(timer); t.remove(); } };
+  return { signal: ctrl.signal, stop: () => { clearInterval(timer); t.remove(); KG.announce("Done"); } };
 }
 async function run(steps, fn, { cancellable = false } = {}) {
   if (busy) return;
@@ -261,7 +262,9 @@ function judge(d, submit) {
     if (submit) { await load(); show(r.detail); }
     renderResult(r);
     if (r.rating_change) KG.toast(`🎉 <b>Accepted!</b> ${esc(d.track)} rating ${r.rating_change.from} → <b>${r.rating_change.to}</b>`, { ms: 10000 });
-    if (submit && r.verdict === "Accepted") $("review-btn").click();
+    return r;
+  }).then(r => {   // after run() has released `busy`, otherwise the nested run() is ignored
+    if (submit && r && r.verdict === "Accepted" && $("review-btn")) $("review-btn").click();
   });
 }
 function renderResult(r) {

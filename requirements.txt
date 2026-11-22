@@ -1,8 +1,11 @@
+# Core: everything except the Copilot provider. Tested with the versions noted; lower bounds keep installs flexible,
+# use `pip install -c constraints.txt -r requirements.txt` for the exact tested set.
 pypdf>=5.0
 PyYAML>=6.0
 aiohttp>=3.9
 pydantic>=2.11
-github-copilot-sdk>=1.0.31
-# optional: only needed for the backend you select in kg.config.yaml (tutor.provider)
-anthropic>=0.40.0
-openai>=1.50.0
+keyring>=25.0        # stores a GitHub token in the OS credential store instead of a file
+# Optional providers (tutor.provider): only the one you use is imported. Remove the lines you don't need.
+anthropic>=0.40.0    # provider: anthropic
+openai>=1.50.0       # provider: openai (OpenAI, Gemini, Ollama, LM Studio)
+# provider: copilot -> pip install -r requirements-copilot.txt (setup -WithCopilot / --with-copilot)

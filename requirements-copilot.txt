@@ -1,0 +1,2 @@
+# Only for tutor.provider: copilot
+github-copilot-sdk>=1.0.31

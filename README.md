@@ -47,9 +47,17 @@ Optional: a GitHub account for the Build page, compilers for the languages you w
 ```powershell
 git clone https://github.com/BLANK00ANONYMOUS/cs-knowledge-graph.git
 cd cs-knowledge-graph
-.\setup.ps1                 # creates .venv, installs dependencies, validates and builds the graph
-.\kg.cmd serve --open       # http://127.0.0.1:8765  — Today · Graph & Tutor · Build · Challenges · Jobs
+.\setup.ps1                 # creates .venv, installs dependencies, turns on the git hooks, builds the graph
+.\kg.cmd serve --open       # opens http://127.0.0.1:8765 with this launch's key — Today · Graph · Build · Challenges · Jobs
 ```
+
+macOS / Linux: `./setup.sh` then `./kg serve --open`. Add `-WithCopilot` / `--with-copilot` to install the Copilot SDK.
+
+> **Only your app window can use the server.** Each `kg serve` creates a random key. The window it opens (or the link it
+> prints, `…/?kgtoken=…`) stores it as a same-site, HttpOnly cookie; anything else — another website, a link from an email,
+> another user on the machine — gets *403 Forbidden*. If you open `http://127.0.0.1:8765` by hand and see that page, use the
+> printed link or the shortcut. Setup also turns on the repository's git hook (`.githooks/pre-commit`); pass `-NoHooks` /
+> `--no-hooks` to skip that, and read the hook first in a clone you didn't write.
 
 Then follow the **Start here** checklist on the Today page. In ten minutes you will have picked a focus, taken a placement
 quiz, finished a lesson and added your first topic.
@@ -59,6 +67,10 @@ quiz, finished a lesson and added your first topic.
 
 ### AI providers
 
+Everyone brings their own AI access: a Claude subscription, GitHub Copilot, an API key, or a **free local model**
+(Ollama / LM Studio). No key is ever stored in the repo. **Step-by-step setup for each option, what works without AI,
+and troubleshooting: [docs/ai-setup.md](docs/ai-setup.md).**
+
 Pick the backend with `tutor.provider` in `kg.config.yaml`, or per run with `kg serve --provider <name> [--model <id>]`.
 
 | Provider | What it uses | Setup |
@@ -66,15 +78,17 @@ Pick the backend with `tutor.provider` in `kg.config.yaml`, or per run with `kg 
 | `claude-code` (**default**) | Your Claude subscription through the Claude Code CLI (found automatically in the Claude desktop app, or on `PATH`) | `claude auth login` once, no API key |
 | `copilot` | GitHub Copilot through the Copilot SDK; falls back to another model if the configured one is unavailable | `gh auth login` with a Copilot plan |
 | `anthropic` | The Claude API | `ANTHROPIC_API_KEY` |
-| `openai` | Any OpenAI-compatible API: OpenAI, Gemini, Ollama, LM Studio | `OPENAI_API_KEY` and `base_url` (no key for local servers) |
+| `openai` | Any OpenAI-compatible API: OpenAI, Gemini, or a free local model in Ollama / LM Studio | `OPENAI_API_KEY`, or just `base_url` for a local server (no key) |
 
-`claude-code` can't run the tutor's book-search tool, so lessons from it leave book citations empty instead of guessing pages.
+**Book citations need tools.** `copilot`, `anthropic` and `openai` let the tutor call `search_books`, so lessons, quizzes
+and plans cite and verify pages from your PDFs. `claude-code` runs without tools: it teaches from general knowledge and leaves
+citations empty rather than inventing page numbers. Pick another provider if fact-checking against your books matters most.
 
 ### Open it like a normal app (Windows)
 
 ```powershell
 .\tools\install.ps1              # Start Menu + Desktop shortcut "Knowledge Graph"
-.\tools\install.ps1 -AutoStart   # also start the server (hidden) when you sign in
+.\tools\install.ps1 -AutoStart   # also start the server (hidden) when you sign in (not on a shared machine)
 .\tools\install.ps1 -Uninstall   # remove the shortcuts
 ```
 
@@ -159,7 +173,9 @@ A conversation panel next to the graph, powered by the [AI provider](#ai-provide
 
 1. **Adaptive questions**, one at a time, as *prediction cards*: pick an option (or **I don't know**), set your **confidence
    slider *before* the answer is revealed**, then explain your reasoning in **Your thinking** (`Enter` submits; 🎤 dictation works).
-   Correct answers never reach the browser until you have answered.
+   Quiz answers never reach the browser until you have answered. (The quick self-checks inside a 📘 lesson are practice,
+   not assessment: their answers are sent with the lesson.) The correct option's position is shuffled in code, and the
+   suggested mastery in the report is capped by what your answers actually show.
 2. The tutor grades your **reasoning** (0–2), names misconceptions, explains why each wrong option is wrong, and adapts the next
    question: harder after strong answers, prerequisite probes after weak ones.
 3. A **report** with level, strengths, gaps, a calibration table (confident-and-wrong answers are flagged first — the most
@@ -241,10 +257,14 @@ page — no restart needed. HTTP-service challenges are offered for languages wi
 challenge counts: Accepted scores 1 minus 0.1 per wrong submission and 0.05 per hint (minimum 0.5); giving up scores 0. Solved
 challenges appear in the graph (⬢) with `practices` links to their concepts.
 
-Files: `challenges/<slug>/` (your code, committed) · `challenges/history.json` (rating history) · `vault/challenges/<slug>.md`
-(graph node) · `.kg/challenges/<slug>/` (hidden tests, reference, builds — gitignored). Judged programs run with a minimal
-environment (no tokens), in a temp directory, with a 5 s limit per test plus a startup allowance for runtimes (JVM +2 s, .NET +1.5 s,
-Node +1 s, Ruby/PHP/Dart +0.5 s); the AI-written reference is screened for unsafe APIs (subprocess, deletes, eval…) before it runs.
+Files: `challenges/<slug>/` (your code) · `challenges/history.json` (rating history) · `vault/challenges/<slug>.md`
+(graph node) · `.kg/challenges/<slug>/` (hidden tests, reference, builds). `challenges/` and `.kg/` are git-ignored, so
+**ratings and hidden tests are per machine**: a challenge note synced to another machine shows its status there, but its
+rating history and tests stay where it was created. Judged programs run with a minimal environment (no tokens), in a temp
+directory, with a 5 s limit per test plus a startup allowance for runtimes (JVM +2 s, .NET +1.5 s, Node +1 s, Ruby/PHP/Dart
++0.5 s). On macOS/Linux they also get their own process group (a timeout kills all their children), a CPU-time limit, a 64 MB
+file-size limit and no core dumps. A time-limit verdict is re-run alone before it counts. The AI-written reference is
+screened for unsafe APIs before it runs, and the starter must compile and must not already pass the tests.
 
 ### 💼 Jobs — roles, skill gaps, live search
 
@@ -295,7 +315,8 @@ Aim at something concrete and let the graph close the gap.
 - **Prerequisite edges win** over related/mention edges between the same two notes; cycles are rejected by `kg check`.
 - **Copilot (editor)**: `.github/copilot-instructions.md` defines tutor behaviour in a Copilot session in this repo (try *"Teach me
   backpropagation"*, *"Quiz me on what's due"*, *"Ingest my new books"*); `.github/skills/` has the `teach` and `study-book` workflows.
-- **Validation**: `setup.ps1` installs a pre-commit hook (`.githooks/pre-commit`) that runs `kg check`.
+- **Validation**: setup turns on a pre-commit hook (`.githooks/pre-commit`) that runs `kg check` on the staged files
+  and refuses to commit private paths (`vault/roles/`, `.kg/`, `books/`, PDFs, journal, plans).
 
 ## Books (PDFs)
 
@@ -380,14 +401,27 @@ every request, so HTML/CSS/JS edits show up on refresh; Python changes need a se
 
 ## Security & privacy
 
-- The server binds to **127.0.0.1 only**, and every state-changing request must carry the `X-KG` header (rejects cross-site requests).
+- The server binds to **127.0.0.1 only**, answers only requests whose `Host` is `127.0.0.1`/`localhost` on its port (blocks
+  DNS rebinding), and only the window holding this launch's key (a SameSite=Strict, HttpOnly cookie; see Quick start).
+  State-changing requests must also carry the `X-KG` header and a same-origin `Origin`.
+- Every page is sent with a Content-Security-Policy (scripts, connections and frames from the app itself only; images
+  from the app and GitHub avatars), `X-Frame-Options`, `nosniff` and `no-referrer`. The front-end libraries are vendored in
+  `tools/vendor/` (see its README), so no CDN can change the code the app runs.
+- Model output is sanitised without images, styles or forms, so injected text can't leak data through an image URL.
+- A GitHub token is kept in the OS credential store (Keychain / Credential Manager) when one is available, otherwise in
+  `.kg/github_account.json` with owner-only permissions.
+- The `claude-code` provider removes `ANTHROPIC_API_KEY`/`ANTHROPIC_AUTH_TOKEN` from the CLI's environment, so it always
+  uses your subscription login and never bills an API key by surprise.
+- The launcher opens the app in its own browser profile (`.kg/browser-profile`), so your everyday extensions can't read it,
+  and stops a background server after 4 hours without use.
 - Your books, notes and progress stay on your machine. The only external calls are to the AI provider you chose (prompts include concept
   notes and book snippets), the public GitHub API (Build), the Remotive/Arbeitnow job APIs (Jobs) and the browser's speech service
   if you use dictation.
 - Job postings, repository text and issue bodies are untrusted: they are wrapped as data in prompts, rendered through
   escaping/DOMPurify, and links are limited to `https`.
-- Challenge code runs locally with a minimal environment (no tokens), a temp working directory and time limits. It is **not a
-  security sandbox** — only run solutions you wrote.
+- Challenge code runs locally with a minimal environment (no tokens), a temp working directory, time limits and (macOS/Linux)
+  CPU and file-size limits. It is **not a security sandbox**: it runs as you and can read your files — only run solutions you
+  wrote or have read.
 - The AI-generated reference solutions are screened for unsafe APIs before they run.
 
 ## Designed from learning science
@@ -426,6 +460,8 @@ Design: a calm "ink" look — near-black neutrals, a warm gold accent, serif hea
 | C/C++ challenges fail to compile | The judge uses the first working clang/gcc. On Windows install MSYS2's `mingw-w64-ucrt-x86_64-clang`. |
 | Dictation does nothing | Use Chrome or Edge and allow microphone access; set `tutor.speech_lang`. |
 | `kg check` fails on commit | Fix the reported note, or commit with `--no-verify` as a last resort. |
+| *Open the app from its own link* (403) | The page was opened without this launch's key: use the shortcut, `kg serve --open`, or the link `kg serve` printed. |
+| The answer was "cut off" | The model hit its output limit: retry, raise `tutor.max_tokens` (anthropic), or `num_ctx` (Ollama). |
 
 ## Development
 
@@ -434,7 +470,8 @@ Design: a calm "ink" look — near-black neutrals, a warm gold accent, serif hea
 .\kg.cmd serve --port 8770   # run a second instance while developing
 ```
 
-- Templates are plain HTML/CSS/JS with no build step (vis-network, marked and DOMPurify load from a CDN).
+- Templates are plain HTML/CSS/JS with no build step; vis-network, marked and DOMPurify are vendored in `tools/vendor/`.
+- Tests: `pip install pytest && python -m pytest` (also run by `.github/workflows/ci.yml` with `kg check`).
 - All AI calls go through `Tutor.ask_typed` / `ask_json` (JSON-as-text validated with Pydantic, one automatic retry) rather than the
   SDK's native structured output, which returns empty objects with some models.
 - Keep UI changes consistent with the learning-science table above.

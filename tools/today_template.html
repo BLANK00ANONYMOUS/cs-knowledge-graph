@@ -169,7 +169,8 @@ function plan() {
     : `<b>${esc(p.label)}</b> · about ${p.n} questions. Pick an answer, say how sure you are, explain why.`;
   btn.onclick = () => {
     const q = new URLSearchParams({ n: p.n });
-    if (p.learn) q.set("learn", p.learn); else q.set("review", p.slugs.join(","));
+    if (p.learn) q.set("learn", p.learn);
+    else { q.set("review", p.slugs.join(",")); if (T.ready.length) q.set("then", T.ready[0].slug); }
     KG.go("/graph?" + q);
   };
 }

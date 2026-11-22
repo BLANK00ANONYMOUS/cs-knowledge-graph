@@ -1,0 +1,6 @@
+#!/bin/sh
+# kg CLI wrapper for macOS / Linux (Windows: kg.cmd).
+ROOT="$(cd "$(dirname "$0")" && pwd)"
+PY="$ROOT/.venv/bin/python"
+if [ ! -x "$PY" ]; then echo "kg: run ./setup.sh first (no .venv found)" >&2; exit 1; fi
+exec "$PY" "$ROOT/tools/kg.py" "$@"

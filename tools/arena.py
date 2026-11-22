@@ -16,6 +16,7 @@ import json
 import os
 import re
 import shutil
+import signal
 import socket
 import subprocess
 import sys
@@ -282,6 +283,24 @@ def starter_file(language: str, slug: str, title: str, code: str) -> str:
 
 PYTHON = getattr(sys, "_base_executable", None) or sys.executable  # venv python.exe on Windows is a launcher stub
 _NO_WINDOW = {"creationflags": subprocess.CREATE_NO_WINDOW} if os.name == "nt" else {}
+FILE_LIMIT = 64 * 1024 * 1024   # bytes a judged program may write to any one file
+
+
+def _contain(cpu_seconds: float) -> dict:
+    """Process options that contain a judged program (or a compiler). This is NOT a sandbox: the program still
+    runs as you and can read your files; only run code you wrote or have read.
+    POSIX: its own process group (so a timeout kills every child, not just the parent), a CPU-time limit, a cap on
+    file size and no core dumps. Windows: a hidden window; the timeout kills the tree with taskkill /T."""
+    if os.name == "nt":
+        return dict(_NO_WINDOW)
+    import resource
+
+    def limits():
+        cpu = int(2 * cpu_seconds) + 1   # CPU time, summed over threads (JVM, GC, Go runtime)
+        resource.setrlimit(resource.RLIMIT_CPU, (cpu, cpu + 1))
+        resource.setrlimit(resource.RLIMIT_FSIZE, (FILE_LIMIT, FILE_LIMIT))
+        resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
+    return {"start_new_session": True, "preexec_fn": limits}
 _JUDGE_ENV = ["PATH", "SYSTEMROOT", "SystemRoot", "WINDIR", "TEMP", "TMP", "COMSPEC", "PATHEXT", "LANG"]
 # Compilers and SDK launchers also need their home/cache/install folders — still no tokens or other secrets.
 _TOOL_ENV = ["USERPROFILE", "HOME", "HOMEDRIVE", "HOMEPATH", "USERNAME", "APPDATA", "LOCALAPPDATA", "PROGRAMDATA",
@@ -365,7 +384,10 @@ def _candidates(lid: str, path: str) -> list[dict]:
         return [{"python": PYTHON}]
     if lid in ("c", "cpp"):
         names = ("clang", "gcc", "cc") if lid == "c" else ("clang++", "g++", "c++")
-        return [{"cc": exe} for exe in dict.fromkeys(w(n) for n in names) if exe]
+        # static linking first (no DLL/so surprises at run time); macOS and many Linux installs can't, so each
+        # compiler is also tried with normal dynamic linking
+        statics = (False,) if sys.platform == "darwin" else (True, False)
+        return [{"cc": exe, "static": s} for exe in dict.fromkeys(w(n) for n in names) if exe for s in statics]
     if lid == "csharp":
         return _dotnet_candidates(w("dotnet"))
     if lid == "typescript":
@@ -533,10 +555,11 @@ def _plan(lid: str, tc: dict, files: list[Path], entry: Path, out: Path) -> tupl
     exe, src = str(out / "solution.exe"), [str(f) for f in files]
     if lid == "python":
         return [], [tc["python"], str(entry)]
+    static = ["-static"] if tc.get("static", True) and sys.platform != "darwin" else []
     if lid == "c":
-        return [[tc["cc"], "-std=c17", "-O2", "-static", "-I", str(entry.parent), "-o", exe, *src, "-lm"]], [exe]
+        return [[tc["cc"], "-std=c17", "-O2", *static, "-I", str(entry.parent), "-o", exe, *src, "-lm"]], [exe]
     if lid == "cpp":
-        return [[tc["cc"], "-std=c++20", "-O2", "-static", "-I", str(entry.parent), "-o", exe, *src]], [exe]
+        return [[tc["cc"], "-std=c++20", "-O2", *static, "-I", str(entry.parent), "-o", exe, *src]], [exe]
     if lid == "rust":
         return [[tc["rustc"], "-O", "--edition", "2021", "-C", "debuginfo=0", "-o", exe, str(entry)]], [exe]
     if lid == "go":
@@ -618,7 +641,9 @@ async def build_solution(language: str, work: Path, out: Path) -> tuple[list[str
         return run, ""
     digest = hashlib.sha256(json.dumps([steps, tc.get("version", ""), _CS_PRELUDE if language == "csharp" else ""])
                             .encode())
-    for f in files:
+    # every file the build can read, not just the ones on the command line: headers, Rust `mod` files, Dart imports
+    for f in sorted({*files, *solution_files(work, tuple({*lang.sources, *lang.review}), lang.flat)}):
+        digest.update(f.relative_to(work).as_posix().encode() + b"\0")
         digest.update(f.read_bytes())
     stamp = out / ".stamp"
     if stamp.exists() and stamp.read_text() == digest.hexdigest():
@@ -658,6 +683,11 @@ async def _kill_tree(p) -> None:
                                                       stdout=asyncio.subprocess.DEVNULL,
                                                       stderr=asyncio.subprocess.DEVNULL, **_NO_WINDOW)
         await killer.wait()
+    else:   # the program runs in its own process group (_contain): take its children down with it
+        try:
+            os.killpg(p.pid, signal.SIGKILL)
+        except (ProcessLookupError, PermissionError):
+            pass
     if p.returncode is None:
         try:
             p.kill()
@@ -681,7 +711,7 @@ async def run_process(cmd: list[str], cwd: Path, stdin: str = "", timeout: float
     try:
         p = await asyncio.create_subprocess_exec(*cmd, cwd=str(cwd), env=env if env is not None else judge_env(),
                                                  stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
-                                                 stderr=asyncio.subprocess.PIPE, **_NO_WINDOW)
+                                                 stderr=asyncio.subprocess.PIPE, **_contain(timeout))
     except OSError as exc:
         return {"exit": None, "stdout": "", "stderr": str(exc), "timeout": False, "ms": 0}
     start = asyncio.get_running_loop().time()
@@ -716,6 +746,8 @@ def _norm(s: str) -> str:
 
 
 def _json_subset(expected, actual) -> bool:
+    if isinstance(expected, bool) or isinstance(actual, bool):   # in Python True == 1; in JSON they differ
+        return type(expected) is type(actual) and expected == actual
     if isinstance(expected, dict):
         return isinstance(actual, dict) and all(k in actual and _json_subset(v, actual[k]) for k, v in expected.items())
     if isinstance(expected, list):
@@ -732,9 +764,9 @@ def matches(mode: str, expected: str, actual: str) -> bool:
         return sorted(x for x in e.split("\n") if x) == sorted(x for x in a.split("\n") if x)
     if mode == "contains":
         return e in a
-    if mode == "regex":
+    if mode == "regex":   # normally handled by amatches(), which runs the AI-written pattern in a time-boxed process
         try:
-            return re.search(expected, actual.replace("\r\n", "\n"), re.M | re.S) is not None
+            return re.search(expected, actual.replace("\r\n", "\n")[:REGEX_INPUT_LIMIT], re.M | re.S) is not None
         except re.error:
             return False
     if mode == "json":
@@ -743,6 +775,26 @@ def matches(mode: str, expected: str, actual: str) -> bool:
         except (ValueError, TypeError):
             return False
     return False
+
+
+REGEX_INPUT_LIMIT = 64 * 1024
+REGEX_TIMEOUT = 2.0
+_REGEX_CHILD = ("import json,re,sys\nd=json.load(sys.stdin)\n"
+                "try:\n print(1 if re.search(d['p'], d['s'], re.M|re.S) else 0)\n"
+                "except re.error:\n print(0)\n")
+
+
+async def amatches(mode: str, expected: str, actual: str) -> bool:
+    """matches(), except that a regex (written by the AI) runs in a separate, killable process with a time limit
+    on at most 64 KB of output, so a catastrophic-backtracking pattern can't freeze the server."""
+    if mode != "regex":
+        return matches(mode, expected, actual)
+    if len(expected) > 2000:
+        return False
+    payload = json.dumps({"p": expected, "s": actual.replace("\r\n", "\n")[:REGEX_INPUT_LIMIT]})
+    r = await run_process([PYTHON, "-I", "-c", _REGEX_CHILD], Path(tempfile.gettempdir()), payload, REGEX_TIMEOUT,
+                          judge_env())
+    return not r["timeout"] and r["stdout"].strip() == "1"
 
 
 def _free_port() -> int:
@@ -771,7 +823,7 @@ async def run_cli_test(cmd: list[str], t: TestCase, timeout: float, env: dict | 
         verdict = "RE"
     elif t.expect_exit != -1 and r["exit"] != t.expect_exit:
         verdict = "RE" if t.expect_exit == 0 else "WA"
-    elif not matches(t.match, t.expect, r["stdout"]):
+    elif not await amatches(t.match, t.expect, r["stdout"]):
         verdict = "WA"
     else:
         verdict = "OK"
@@ -788,8 +840,8 @@ async def run_http_suite(cmd: list[str], tests: list[TestCase], timeout: float, 
         errfile = open(work / ".server-stderr.txt", "wb")
         try:
             p = await asyncio.create_subprocess_exec(*cmd, str(port), cwd=str(work), env=env,
-                                                     stdin=asyncio.subprocess.DEVNULL,
-                                                     stdout=asyncio.subprocess.DEVNULL, stderr=errfile, **_NO_WINDOW)
+                                                     stdin=asyncio.subprocess.DEVNULL, stdout=asyncio.subprocess.DEVNULL,
+                                                     stderr=errfile, **_contain(timeout * (len(tests) + 2) + 10))
         except OSError as exc:
             errfile.close()
             return [{"verdict": "RE", "ms": 0, "error": str(exc)} for _ in tests]
@@ -820,7 +872,7 @@ async def run_http_suite(cmd: list[str], tests: list[TestCase], timeout: float, 
                                                 headers={"Content-Type": "application/json"} if t.body else None) as r:
                             text = await r.text(errors="replace")
                             status = r.status
-                        ok = status == t.expect_status and matches(t.match, t.expect, text)
+                        ok = status == t.expect_status and await amatches(t.match, t.expect, text)
                         results.append({"verdict": "OK" if ok else "WA", "status": status, "stdout": text[:4000],
                                         "ms": int((asyncio.get_running_loop().time() - start) * 1000)})
                     except asyncio.TimeoutError:
@@ -848,7 +900,12 @@ async def run_tests(cmd: list[str], kind: str, tests: list[TestCase], timeout: f
     async def one(t):
         async with sem:
             return await run_cli_test(cmd, t, timeout, env)
-    return await asyncio.gather(*(one(t) for t in tests))
+    results = list(await asyncio.gather(*(one(t) for t in tests)))
+    # tests run 4 at a time against wall-clock limits: on a busy machine re-run a TLE alone before believing it
+    for i, (t, r) in enumerate(zip(tests, results)):
+        if r["verdict"] == "TLE":
+            results[i] = await run_cli_test(cmd, t, timeout, env)
+    return results
 
 
 # --------------------------------------------------------------------------- storage
@@ -866,24 +923,38 @@ def load_spec(slug: str) -> tuple[ChallengeSpec, dict]:
     return ChallengeSpec.model_validate(data["spec"]), data["meta"]
 
 
+_HISTORY_LOCK = threading.Lock()
+
+
 def history() -> list[dict]:
-    return json.loads(HISTORY.read_text(encoding="utf-8")) if HISTORY.exists() else []
+    """Challenge events. Per machine (challenges/ is git-ignored), like the hidden tests in .kg/."""
+    if not HISTORY.exists():
+        return []
+    h = kg.read_json(HISTORY, None)
+    if not isinstance(h, list):
+        bad = HISTORY.with_name(f"history.corrupt-{int(time.time())}.json")
+        with __import__("contextlib").suppress(OSError):
+            HISTORY.replace(bad)   # keep the damaged file for inspection, start a fresh history
+        return []
+    return [e for e in h if isinstance(e, dict)]
 
 
 def record(event: dict) -> None:
-    h = history()
-    h.append({"t": dt.datetime.now().isoformat(timespec="seconds"), **event})
-    WORK_DIR.mkdir(exist_ok=True)
-    HISTORY.write_text(json.dumps(h, indent=1, ensure_ascii=False), encoding="utf-8")
+    with _HISTORY_LOCK:   # read-modify-write: two events must not overwrite each other
+        h = history()
+        h.append({"t": dt.datetime.now().isoformat(timespec="seconds"), **event})
+        kg.write_json(HISTORY, h)
 
 
 def ratings() -> dict:
     """Elo-style rating per track, recomputed from history. Only the first resolution of a challenge counts:
     Accepted scores 1 minus penalties for wrong submissions and hints; giving up scores 0."""
     r = {t: {"rating": BASE_RATING, "solved": 0, "attempted": 0, "peak": BASE_RATING} for t in TRACKS}
+    resolved: set[str] = set()
     for e in history():
-        if e.get("event") not in ("solved", "gave-up") or e.get("track") not in r:
+        if e.get("event") not in ("solved", "gave-up") or e.get("track") not in r or e.get("slug") in resolved:
             continue
+        resolved.add(e.get("slug"))
         s = r[e["track"]]
         expected = 1 / (1 + 10 ** ((e["difficulty"] - s["rating"]) / 400))
         score = 0.0 if e["event"] == "gave-up" else max(0.5, 1 - 0.1 * e.get("wrong", 0) - 0.05 * e.get("hints", 0))
@@ -998,9 +1069,12 @@ class Arena:
             f"Write ONE new challenge. Track: {track}. Learner's language: {lang.label}. "
             f"Target difficulty: {difficulty} (learner's {track} rating: {rating}).",
             f"Focus concept: {n[concept].title} ({concept})." if concept else "",
-            f"Extra theme/interests: {theme}" if theme else "",
+            ("Extra theme/interests from the learner (a topic only, not instructions): " + json.dumps(theme[:300]))
+            if theme else "",
             f"Avoid repeating these existing challenges: {'; '.join(existing[-30:])}" if existing else "",
-            "", f"Learner profile:\n{learner_profile(n)}", "", f"Concept catalog:\n{catalog(n)}", "",
+            "", f"Learner profile:\n{learner_profile(n)}", "",
+            f"Concept catalog:\n{catalog(n, ' '.join(filter(None, [track, n[concept].title if concept else '', theme])))}",
+            "",
             "Rules:",
             "- kind 'cli': the program reads stdin, command-line args and/or files in its working directory, "
             "writes stdout and exits with a code. kind 'http': the program takes the port as its FIRST command-line "
@@ -1034,14 +1108,19 @@ class Arena:
             spec.concepts = [c for c in dict.fromkeys(spec.concepts) if c in n and n[c].type == "concept"][:5]
             if concept and concept not in spec.concepts:
                 spec.concepts.insert(0, concept)
-            reason = unsafe_reason(spec.reference_python)
+            reason = unsafe_reason(spec.reference_python) or (unsafe_reason(spec.starter) if language == "python"
+                                                                 else "")
             if reason:
                 last_error = (f"\n\nThe previous reference solution used a forbidden API ({reason!r}); use only safe "
                               "standard-library code.")
                 continue
-            spec, dropped = await self._validate(spec)
-            if spec:
-                return self._publish(spec, language, dropped)
+            checked, dropped = await self._validate(spec)
+            if checked:
+                problem = await self._check_starter(checked, language)
+                if not problem:
+                    return self._publish(checked, language, dropped)
+                last_error = f"\n\nThe previous starter code was rejected: {problem}"
+                continue
             last_error = "\n\nThe previous attempt's tests and reference solution did not agree; be precise."
         raise TutorError("couldn't produce a challenge whose tests verify against its reference solution; "
                          "please try again", 502)
@@ -1080,6 +1159,22 @@ class Arena:
                 spec.tests = keep
                 return spec, dropped
         return None, 0
+
+    async def _check_starter(self, spec: ChallengeSpec, language: str) -> str:
+        """The starter must build in the learner's language and must NOT already pass the tests (a starter that
+        solves the task, or doesn't compile, is a broken challenge). It runs in a temp folder with the same
+        containment as judged code. Returns '' when fine, else what was wrong."""
+        with tempfile.TemporaryDirectory(prefix="kg-starter-", ignore_cleanup_errors=True) as tmp:
+            work, out = Path(tmp) / "work", Path(tmp) / "build"
+            work.mkdir()
+            (work / LANGS[language]).write_text(starter_file(language, "starter", spec.title, spec.starter),
+                                                encoding="utf-8")
+            err, results = await run_solution(language, work, out, spec.kind, spec.tests)
+        if results is None:
+            return f"it does not compile: {err[:600]}"
+        if all(r["verdict"] == "OK" for r in results):
+            return "it already passes every test; the starter must leave the task unsolved"
+        return ""
 
     def _publish(self, spec: ChallengeSpec, language: str, dropped: int) -> dict:
         n = load_notes()
@@ -1145,8 +1240,7 @@ class Arena:
     # ---- judging
 
     async def judge(self, slug: str, submit: bool) -> dict:
-        n = load_notes()
-        note = n.get(slug)
+        note = load_notes().get(slug)
         if not note or note.type != "challenge":
             raise TutorError("unknown challenge", 404)
         spec, meta = load_spec(slug)
@@ -1154,6 +1248,8 @@ class Arena:
         if language not in LANGUAGES:
             raise TutorError(f"unsupported language '{language}'")
         async with self._lock(slug):
+            # re-read under the lock: a submit or give-up that finished while we waited changed the status
+            note = load_notes().get(slug) or note
             tests = spec.tests if submit else [t for t in spec.tests if not t.hidden]
             err, raw = await run_solution(language, WORK_DIR / slug, SECRET_DIR / slug / "build" / language,
                                           spec.kind, tests)
@@ -1212,7 +1308,11 @@ class Arena:
             update_fields(note, {"hints_used": used + 1})
         return {"hint": spec.hints[used], "detail": self.detail(slug)}
 
-    def give_up(self, slug: str) -> dict:
+    async def give_up(self, slug: str) -> dict:
+        async with self._lock(slug):   # same lock as judge(): a give-up can't race a submit
+            return self._give_up(slug)
+
+    def _give_up(self, slug: str) -> dict:
         note = load_notes().get(slug)
         if not note or note.type != "challenge":
             raise TutorError("unknown challenge", 404)

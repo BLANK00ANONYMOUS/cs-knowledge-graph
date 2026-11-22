@@ -4,8 +4,8 @@
 <meta charset="utf-8">
 <title>Build · Knowledge Graph</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<script src="https://unpkg.com/marked@12.0.2/marked.min.js"></script>
-<script src="https://unpkg.com/dompurify@3.1.6/dist/purify.min.js"></script>
+<script src="/vendor/marked.min.js"></script>
+<script src="/vendor/purify.min.js"></script>
 <script>/*__COMMON_JS__*/</script>
 <style>
 /*__COMMON_CSS__*/
@@ -316,7 +316,7 @@ $("find-btn").onclick = () => run("Searching GitHub and ranking issues for you�
       <div class="muted"><a href="https://github.com/${esc(i.repo)}" target="_blank" rel="noopener">${esc(i.repo)}</a> — ${esc(i.repo_description || "")}</div>
       <div><b>Why you:</b> ${esc(i.why)}</div><div><b>You'll learn:</b> ${esc(i.you_will_learn)}</div>
       <div>${concepts(i.concepts)}</div>
-      <details><summary>First steps</summary><ol>${i.first_steps.map(s => `<li>${md(s)}</li>`).join("")}</ol></details>
+      <details><summary>First steps <span class="muted">(AI-suggested from the issue's text — read the repo's own CONTRIBUTING guide before running any command)</span></summary><ol>${i.first_steps.map(s => `<li>${md(s)}</li>`).join("")}</ol></details>
       <div><button class="primary" data-track="${esc(i.url)}">🎯 Track this issue</button></div>
     </div>`).join("") : '<p class="muted">No matching issues — try more languages, fewer stars, or other labels.</p>';
 });
