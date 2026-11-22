@@ -6,6 +6,7 @@ concepts (prerequisites first), linked to existing concepts. Nothing is written 
 """
 from __future__ import annotations
 
+import asyncio
 import re
 from typing import Literal
 
@@ -65,11 +66,13 @@ def concept_body(title: str, summary: str, why: str) -> str:
 
 
 def write_concept(slug: str, title: str, domain: str, summary: str, prereqs: list[str], why: str,
-                  tags: list[str]) -> None:
+                  tags: list[str]):
     vault, _ = kg.load_config()
     meta = {"title": title, "type": "concept", "domain": domain, "tags": tags, "prereqs": prereqs, "related": [],
             "sources": [], "mastery": 0, "last_reviewed": None}
-    write_note(vault / domain / f"{slug}.md", meta, concept_body(title, summary, why))
+    path = vault / domain / f"{slug}.md"
+    write_note(path, meta, concept_body(title, summary, why))
+    return path
 
 
 def _concept_matches(n: dict[str, kg.Note], text: str) -> list[dict]:
@@ -96,9 +99,10 @@ class Topics:
         text = re.sub(r"\s+", " ", (text or "")).strip()[:200]
         if len(text) < 2:
             raise TutorError("type a topic, e.g. 'Kubernetes', 'RSA', 'transformers'")
-        n = load_notes()
-        matches = _concept_matches(n, text)
-        prompt = (f"Learner profile:\n{learner_profile(n)}\n\nConcept catalog (slug — title (domain)):\n{catalog(n)}\n\n"
+        n = await asyncio.to_thread(load_notes)
+        matches = await asyncio.to_thread(_concept_matches, n, text)   # SQLite work off the event loop
+        cat = await asyncio.to_thread(catalog, n, text)
+        prompt = (f"Learner profile:\n{learner_profile(n)}\n\nConcept catalog (slug — title (domain)):\n{cat}\n\n"
                   f"{DOMAIN_HELP}\n\nThe learner wants to learn: <<<{text}>>>\n\n"
                   "If a catalog concept already IS this topic, set existing to its slug and topics to []. Otherwise "
                   "propose the concept for it plus ONLY the prerequisite concepts that are missing from the catalog "
@@ -136,8 +140,10 @@ class Topics:
         if not isinstance(topics, list) or not topics:
             raise TutorError("nothing to add")
         n = load_notes()
+        vault, _ = kg.load_config()
+        before = set(kg.validate(n, vault)[0])
         domains = set(kg.DOMAINS)
-        created, slug_of = [], {}
+        created, slug_of, written = [], {}, []
         for t in topics[:6]:
             if not isinstance(t, dict):
                 raise TutorError("bad topic")
@@ -155,15 +161,20 @@ class Topics:
                 ref = slug_of.get(ref, ref)
                 if ref in n and n[ref].type == "concept" or ref in [c["slug"] for c in created]:
                     prereqs.append(ref)
-            write_concept(slug, title, domain, str(t.get("summary") or "")[:300], list(dict.fromkeys(prereqs))[:3],
-                          str(t.get("why") or "")[:300], ["added"])
+            path = vault / domain / f"{slug}.md"
+            if path.exists():   # a file the vault couldn't load (e.g. broken frontmatter): never overwrite it
+                raise TutorError(f"{path.relative_to(kg.ROOT)} already exists but isn't a valid note; fix it first")
+            written.append(write_concept(slug, title, domain, str(t.get("summary") or "")[:300],
+                                         list(dict.fromkeys(prereqs))[:3], str(t.get("why") or "")[:300], ["added"]))
             slug_of[str(t.get("key"))] = slug
             created.append({"slug": slug, "title": title})
-        vault, _ = kg.load_config()
-        notes_after, _ = kg.load_vault(vault)
-        errs, _ = kg.validate(notes_after, vault)
-        if errs:
-            raise TutorError("the new concepts made the vault invalid: " + "; ".join(errs[:3]), 500)
+        notes_after, load_errors = kg.load_vault(vault)
+        new_errors = (set(kg.validate(notes_after, vault)[0]) | set(load_errors)) - before
+        if new_errors:   # roll back only what this call wrote; earlier problems elsewhere aren't ours
+            for p in written:
+                p.unlink(missing_ok=True)
+            raise TutorError("those concepts would make the vault invalid, so nothing was added: "
+                             + "; ".join(sorted(new_errors)[:3]), 422)
         kg.mark_step("topic")
         last = list(slug_of.values())[-1] if slug_of else None
         return {"created": created, "focus": last}

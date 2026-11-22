@@ -23,6 +23,10 @@ tutor:
   questions: 6               # MCQs per assessment
   port: 8765
   speech_lang: en-IN         # voice dictation language (BCP-47), e.g. en-US, hi-IN
+  # idle_exit_minutes: 0     # `kg serve` stops after this long without requests (0 = never; the launcher uses 240)
+  # verify_answers: false    # true: an independent AI call re-solves every quiz question and replaces ones whose
+  #                          # answer key it disputes (more reliable, one extra call per question)
+  # max_tokens: 16000        # anthropic provider: output limit per reply
 
 # Build page: projects + open-source contributions (read-only public GitHub data).
 # Nobody's account is fixed here: whoever opens the app connects their own GitHub on the Build page
@@ -32,3 +36,4 @@ github:
   #                        # Not a secret. Without it, people connect with their username or a personal access token.
   languages: [Python, C, C++, Rust, Go]
   min_stars: 50
+  location: India            # Jobs: job market to suggest roles for (remove for remote / international)

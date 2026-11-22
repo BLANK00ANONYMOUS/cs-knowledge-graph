@@ -1,7 +1,22 @@
 #!/bin/sh
-# Validate the knowledge graph before every commit (installed by setup.ps1 via core.hooksPath).
+# Runs before every commit (turned on by setup via core.hooksPath).
+#  1. refuses to commit private files (target roles, local state, books, PDFs)
+#  2. validates the knowledge graph with `kg check` against what is being committed
 ROOT="$(git rev-parse --show-toplevel)"
+
+bad=$(git diff --cached --name-only --diff-filter=ACMR | grep -E '^(vault/roles/[^.]|\.kg/|books/|vault/books/[^.]|journal/[0-9]|plans/)|\.pdf$')
+if [ -n "$bad" ]; then
+  echo "kg: refusing to commit private files:"; echo "$bad" | sed 's/^/  /'
+  echo "Unstage them (git restore --staged <file>); see .gitignore."
+  exit 1
+fi
+
 PY="$ROOT/.venv/Scripts/python.exe"
 [ -x "$PY" ] || PY="$ROOT/.venv/bin/python"
-[ -x "$PY" ] || { echo "kg: .venv missing, run setup.ps1 (skipping check)"; exit 0; }
-"$PY" "$ROOT/tools/kg.py" check || { echo "kg check failed - fix the vault or commit with --no-verify"; exit 1; }
+[ -x "$PY" ] || { echo "kg: .venv missing, run setup first (skipping kg check)"; exit 0; }
+
+# Check the staged snapshot, not the working tree: a partial commit must pass or fail on what it contains.
+TMP=$(mktemp -d)
+trap 'rm -rf "$TMP"' EXIT
+git checkout-index --prefix="$TMP/" -a
+"$PY" "$TMP/tools/kg.py" check || { echo "kg check failed on the staged files - fix the vault or commit with --no-verify"; exit 1; }

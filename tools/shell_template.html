@@ -80,10 +80,16 @@ KG.themeButton(document.getElementById("theme"));
 const guide = document.getElementById("guide");
 document.getElementById("guide-btn").onclick = () => guide.showModal();
 
-function open(href) {
-  const u = new URL(href, location.origin);
+/* Only same-origin section paths are ever opened: never javascript:/data: URLs, other sites or unknown paths.
+   `fromUrl` marks a deep link that arrived in this page's address bar (not a click inside the app): sections
+   then ask before starting anything that runs the AI. */
+function open(href, { fromUrl = false } = {}) {
+  let u;
+  try { u = new URL(href, location.origin); } catch (e) { return; }
+  if (u.origin !== location.origin) return;
   const tab = PATH_TAB[u.pathname];
-  if (!tab) { location.href = u.href; return; }
+  if (!tab) return;
+  if (fromUrl && u.search) u.searchParams.set("kgconfirm", "1");
   const target = (u.pathname === "/" ? "/today" : u.pathname) + u.search + u.hash;
   const deep = !!(u.search || u.hash);
   let f = frames[tab];
@@ -126,7 +132,9 @@ document.addEventListener("keydown", e => {
 
 const params = new URLSearchParams(location.search);
 const hashTab = location.hash.slice(1);
-open(params.get("open") || TABS[hashTab] || TABS[localStorage.getItem("kgTab")] || "/today");
+const asked = params.get("open") || "";
+if (asked.startsWith("/") && !asked.startsWith("//") && !asked.includes("\\")) open(asked, { fromUrl: true });
+else open(TABS[hashTab] || TABS[localStorage.getItem("kgTab")] || "/today");
 if (!localStorage.getItem("kgGuideSeen")) { localStorage.setItem("kgGuideSeen", "1"); guide.showModal(); }
 </script>
 </body>

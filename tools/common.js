@@ -23,8 +23,17 @@ const THEMES = [["auto", "🌓 Auto"], ["ink", "🌑 Ink"], ["paper", "📜 Pape
 
 const KG = {
   esc: s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])),
-  md: s => (window.marked && window.DOMPurify) ? DOMPurify.sanitize(marked.parse(String(s ?? "")))
-                                                : KG.esc(s).replace(/\n/g, "<br>"),
+  /* Model output and third-party text can carry injected instructions: no images, styles or forms (they can
+     leak data through URLs without a click), and links only to https/mailto. */
+  md: s => (window.marked && window.DOMPurify)
+    ? DOMPurify.sanitize(marked.parse(String(s ?? "")), {
+        FORBID_TAGS: ["img", "style", "form", "input", "button", "textarea", "select", "iframe", "svg", "math",
+                      "video", "audio", "source", "picture", "object", "embed", "link", "meta", "base"],
+        FORBID_ATTR: ["style", "srcset", "background", "poster", "formaction"],
+        ALLOWED_URI_REGEXP: /^(?:https:|mailto:|#)/i })
+    : KG.esc(s).replace(/\n/g, "<br>"),
+  /* An external link only if it is https; anything else (javascript:, data:, http:) becomes "#". */
+  safeUrl: u => /^https:\/\/[^\s"'<>]+$/i.test(String(u || "")) ? String(u) : "#",
   reducedMotion: () => window.matchMedia("(prefers-reduced-motion: reduce)").matches,
   served: () => location.protocol.startsWith("http"),
   embedded: KG_EMBEDDED,
@@ -67,15 +76,34 @@ const KG = {
   },
   cssVar: name => getComputedStyle(document.documentElement).getPropertyValue(name).trim(),
 
-  toast(html, { error = false, ms = 6000 } = {}) {
+  /* Toasts stack in one corner container instead of covering each other. `quiet` toasts (progress spinners
+     whose label changes every second) are not live regions, so screen readers aren't interrupted constantly;
+     announce() reports their start and end instead. */
+  toast(html, { error = false, ms = 6000, quiet = false } = {}) {
+    let box = document.getElementById("kg-toasts");
+    if (!box) {
+      box = document.createElement("div");
+      box.id = "kg-toasts";
+      document.body.appendChild(box);
+    }
     const t = document.createElement("div");
     t.className = "toast" + (error ? " err" : "");
-    t.setAttribute("role", error ? "alert" : "status");
-    t.innerHTML = `<div>${html}</div><button class="ghost" aria-label="Dismiss">✕</button>`;
-    t.querySelector("button").onclick = () => t.remove();
-    document.body.appendChild(t);
+    if (!quiet) t.setAttribute("role", error ? "alert" : "status");
+    t.innerHTML = `<div>${html}</div><button class="ghost toast-x" aria-label="Dismiss">✕</button>`;
+    t.querySelector(".toast-x").onclick = () => t.remove();
+    box.appendChild(t);
     if (ms) setTimeout(() => t.remove(), ms);
     return t;
+  },
+  announce(text) {
+    let live = document.getElementById("kg-live");
+    if (!live) {
+      live = document.createElement("div");
+      live.id = "kg-live"; live.className = "sr-only"; live.setAttribute("aria-live", "polite");
+      document.body.appendChild(live);
+    }
+    live.textContent = "";
+    setTimeout(() => { live.textContent = text; }, 50);
   },
 };
 
@@ -101,7 +129,9 @@ if (KG_EMBEDDED) {
   window.addEventListener("message", e => {
     if (e.origin !== location.origin || !e.data || typeof e.data !== "object") return;
     if (e.data.kg === "route") {
-      const u = new URL(e.data.href, location.origin);
+      let u;
+      try { u = new URL(String(e.data.href), location.origin); } catch (err) { return; }
+      if (u.origin !== location.origin || !KG_SECTIONS[u.pathname]) return;   // same-origin section pages only
       if (KG._route && u.pathname === location.pathname) KG._route(u); else location.href = u.href;
     } else if (e.data.kg === "shown") document.dispatchEvent(new CustomEvent("kg-shown"));
   });

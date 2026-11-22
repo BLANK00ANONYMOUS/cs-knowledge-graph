@@ -28,12 +28,21 @@ from typing import Awaitable, Callable
 
 import kg
 
+# Windows: a server started without a console must not flash a console window for every child process
+NO_WINDOW = {"creationflags": subprocess.CREATE_NO_WINDOW} if os.name == "nt" else {}
+
 PROVIDERS = ("claude-code", "copilot", "anthropic", "openai")
 COPILOT_DEFAULT_MODEL = "claude-sonnet-5.5"
 ANTHROPIC_DEFAULT_MODEL = "claude-sonnet-5-5"
 CLAUDE_CODE_DEFAULT_MODEL = "sonnet"
 MAX_TOOL_ROUNDS = 12
 COPILOT_START_TIMEOUT = 60
+MAX_CONCURRENT_CALLS = 3   # several sections can run AI work at once; don't flood the provider (or the CPU)
+# The CLI prefers these over the subscription login, so leaving them in would silently bill an API account, and
+# a server started inside a Claude Code session inherits markers that change how the CLI behaves.
+CLAUDE_CODE_DROP_ENV = ("CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN",
+                        "ANTHROPIC_BASE_URL", "CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX",
+                        "CLAUDE_CODE_USE_FOUNDRY")
 
 
 class TutorError(Exception):
@@ -51,6 +60,9 @@ class ToolDef:
     handler: Callable[[dict], Awaitable[str]]
 
 
+_CALLS: asyncio.Semaphore | None = None
+
+
 class ChatSession(abc.ABC):
     """A conversation that keeps its own history."""
 
@@ -58,7 +70,11 @@ class ChatSession(abc.ABC):
     async def _send(self, prompt: str, timeout: float) -> str: ...
 
     async def send(self, prompt: str, timeout: float = 240) -> str:
-        return await asyncio.wait_for(self._send(prompt, timeout), timeout)
+        global _CALLS
+        if _CALLS is None:
+            _CALLS = asyncio.Semaphore(MAX_CONCURRENT_CALLS)
+        async with _CALLS:
+            return await asyncio.wait_for(self._send(prompt, timeout), timeout)
 
     async def close(self) -> None:
         return None
@@ -97,21 +113,35 @@ NO_TOOLS_NOTE = ("\n\nNote: the search_books and get_concept tools are NOT avail
 
 
 def _find_claude() -> str | None:
-    """The `claude` CLI: on PATH, the standalone install, or the copy bundled with the Claude desktop app."""
-    found = shutil.which("claude")
+    """The `claude` CLI: on PATH, the standalone install, or the copy bundled with the Claude desktop app
+    (macOS and Windows). A native .exe is preferred over a .cmd/.bat shim, whose cmd.exe parsing would mangle the
+    system prompt (it contains < and >)."""
+    win = os.name == "nt"
+    found = shutil.which("claude.exe") if win else shutil.which("claude")
     if found:
         return found
     home = Path.home()
-    for p in (home / ".claude" / "local" / "claude", home / ".local" / "bin" / "claude"):
-        if p.is_file() and os.access(p, os.X_OK):
-            return str(p)
-    bundled = list(home.glob("Library/Application Support/Claude/claude-code/*/*/claude.app/Contents/MacOS/claude"))
+    names = ("claude.exe",) if win else ("claude",)
+    for d in (home / ".claude" / "local", home / ".local" / "bin"):
+        for name in names:
+            p = d / name
+            if p.is_file() and (win or os.access(p, os.X_OK)):
+                return str(p)
+    patterns = ["Library/Application Support/Claude/claude-code/*/*/claude.app/Contents/MacOS/claude"]
+    roots = [home]
+    if win:
+        roots = [Path(v) for v in (os.environ.get("APPDATA"), os.environ.get("LOCALAPPDATA")) if v]
+        patterns = ["Claude/claude-code/*/*/claude.exe", "Claude/claude-code/*/claude.exe",
+                    "AnthropicClaude/app-*/resources/claude-code/*/claude.exe"]
+    bundled = [p for r in roots for pat in patterns for p in r.glob(pat)]
 
     def version(p: Path) -> tuple[int, ...]:
         m = re.search(r"claude-code/(\d+(?:\.\d+)*)/", p.as_posix())
         return tuple(int(x) for x in m.group(1).split(".")) if m else (0,)
 
-    return str(max(bundled, key=version)) if bundled else None
+    if bundled:
+        return str(max(bundled, key=version))
+    return shutil.which("claude")   # last resort, e.g. an npm .cmd shim on Windows (prompt goes via stdin/file)
 
 
 class ClaudeCodeProvider(Provider):
@@ -142,23 +172,30 @@ class ClaudeCodeChat(ChatSession):
         self.session_id: str | None = None
 
     async def _send(self, prompt: str, timeout: float) -> str:
+        # the system prompt goes through a file, never the command line: no length limit, no shell quoting
+        sys_file = self.p.workdir / f"system-{id(self)}.txt"
+        sys_file.write_text(self.system, encoding="utf-8")
         args = [self.p.path, "-p", "--output-format", "json", "--tools", "", "--setting-sources", "",
-                "--system-prompt", self.system]
+                "--system-prompt-file", str(sys_file)]
         if self.p.cli_model:
             args += ["--model", self.p.cli_model]
         if self.session_id:
             args += ["--resume", self.session_id]
-        # A server started from inside a Claude Code session inherits markers that change how the CLI behaves.
-        env = {k: v for k, v in os.environ.items() if k not in ("CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT")}
+        env = {k: v for k, v in os.environ.items() if k not in CLAUDE_CODE_DROP_ENV}
         proc = await asyncio.create_subprocess_exec(
             *args, stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
-            cwd=str(self.p.workdir), env=env)
+            cwd=str(self.p.workdir), env=env, **NO_WINDOW)
         try:
             out, err = await proc.communicate(prompt.encode("utf-8"))
-        except BaseException:  # timeout or shutdown: don't leave the CLI running
+        except BaseException:  # timeout or shutdown: don't leave the CLI running (or a zombie behind)
             with contextlib.suppress(ProcessLookupError):
                 proc.kill()
+            with contextlib.suppress(BaseException):
+                await asyncio.wait_for(proc.wait(), 5)
             raise
+        finally:
+            with contextlib.suppress(OSError):
+                sys_file.unlink()
         try:
             data = json.loads(out.decode("utf-8", "replace") or "{}")
         except json.JSONDecodeError:
@@ -188,11 +225,19 @@ def _github_token() -> str | None:
         gh = str(found[-1]) if found else None
     if gh:
         try:
-            out = subprocess.run([gh, "auth", "token"], capture_output=True, text=True, timeout=15)
+            out = subprocess.run([gh, "auth", "token"], capture_output=True, text=True, timeout=15, **NO_WINDOW)
             return out.stdout.strip() or None
         except (OSError, subprocess.SubprocessError):
             return None
     return None
+
+
+def _deny_permission(request, invocation):
+    """Copilot permission requests are refused. The client runs in `empty` mode and every session passes an
+    explicit allow-list (`available_tools`), and our own tools set skip_permission, so a request can only come from
+    a built-in tool (shell, file edits) that should never run here, whatever untrusted text asks for."""
+    from copilot.generated.rpc import PermissionDecisionReject
+    return PermissionDecisionReject(feedback="tools other than the tutor's own are disabled in this app")
 
 
 class CopilotProvider(Provider):
@@ -228,7 +273,7 @@ class CopilotProvider(Provider):
             for m in order:
                 s = None
                 try:
-                    s = await self.client.create_session(on_permission_request=PermissionHandler.approve_all,
+                    s = await self.client.create_session(on_permission_request=_deny_permission,
                                                          model=m, available_tools=[])
                     await s.send_and_wait("Reply with the single word OK.", timeout=60)
                 except Exception:
@@ -281,7 +326,7 @@ class CopilotProvider(Provider):
             return Tool(name=t.name, skip_permission=True, handler=handler, description=t.description,
                         parameters=t.parameters)
 
-        kwargs = dict(on_permission_request=PermissionHandler.approve_all, model=self.model,
+        kwargs = dict(on_permission_request=_deny_permission, model=self.model,
                       system_message={"mode": "replace", "content": system})
         if tools:
             names = ToolSet()
@@ -358,6 +403,9 @@ class AnthropicChat(ChatSession):
             if self.specs:
                 kwargs["tools"] = self.specs
             resp = await self.p.client.messages.create(**kwargs)
+            if resp.stop_reason == "max_tokens":   # a cut-off reply would only look like broken JSON
+                raise TutorError(f"the model's answer was cut off at max_tokens ({self.p.max_tokens}); raise "
+                                 "tutor.max_tokens in kg.config.yaml or retry", 502)
             self.messages.append({"role": "assistant",
                                   "content": [b.model_dump(exclude_none=True) for b in resp.content]})
             uses = [b for b in resp.content if b.type == "tool_use"]
@@ -414,6 +462,9 @@ class OpenAIChat(ChatSession):
             if self.specs:
                 kwargs["tools"] = self.specs
             resp = await self.p.client.chat.completions.create(**kwargs)
+            if resp.choices[0].finish_reason == "length":
+                raise TutorError("the model's answer was cut off (output or context limit); for Ollama raise num_ctx, "
+                                 "otherwise retry or pick a model with a larger output limit", 502)
             msg = resp.choices[0].message
             # echo back only the standard fields: some compatible servers reject OpenAI-only extras
             turn: dict = {"role": "assistant", "content": msg.content or ""}
@@ -439,7 +490,7 @@ class OpenAIChat(ChatSession):
 
 def make_provider(cfg: dict, provider: str | None = None, model: str | None = None) -> Provider:
     """Build the provider named in config (`tutor.provider`), with optional CLI overrides."""
-    configured = str(cfg.get("provider") or "copilot").strip().lower()
+    configured = str(cfg.get("provider") or "claude-code").strip().lower()   # same default as the README
     name = str(provider or configured).strip().lower()
     if name not in PROVIDERS:
         raise TutorError(f"unknown provider '{name}'; choose one of: {', '.join(PROVIDERS)}", 500)

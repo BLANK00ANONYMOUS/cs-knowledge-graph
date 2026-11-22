@@ -17,6 +17,7 @@ Commands:
 from __future__ import annotations
 
 import argparse
+import contextlib
 import datetime as dt
 import hashlib
 import json
@@ -24,6 +25,7 @@ import os
 import re
 import sqlite3
 import sys
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -34,6 +36,7 @@ CONFIG_PATH = ROOT / "kg.config.yaml"
 INDEX_PATH = ROOT / ".kg" / "index.db"
 BUILD_DIR = ROOT / "build"
 TEMPLATE_PATH = Path(__file__).resolve().parent / "graph_template.html"
+VENDOR_DIR = Path(__file__).resolve().parent / "vendor"
 
 DOMAINS = ["math", "cs", "systems", "security", "ai", "meta"]
 TYPES = ["concept", "roadmap", "book", "project", "contribution", "challenge", "role"]
@@ -59,7 +62,8 @@ def load_settings() -> dict:
 def load_config() -> tuple[Path, Path]:
     cfg = load_settings()
     vault = ROOT / cfg.get("vault_dir", "vault")
-    books = Path(os.environ.get("KG_BOOKS_DIR") or cfg.get("books_dir") or ROOT / "books")
+    # relative paths are relative to the repo, not to wherever kg was started from (absolute values still win)
+    books = ROOT / (os.environ.get("KG_BOOKS_DIR") or cfg.get("books_dir") or "books")
     return vault, books
 
 
@@ -70,19 +74,37 @@ def slugify(text: str) -> str:
 PROFILE_PATH = ROOT / ".kg" / "profile.json"
 
 
+def write_json(path: Path, data, indent: int | None = 1) -> None:
+    """Write JSON atomically (temp file + rename), so an interrupted write never leaves a truncated file."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(prefix=path.name + ".", suffix=".tmp", dir=path.parent)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            json.dump(data, fh, indent=indent, ensure_ascii=False)
+        os.replace(tmp, path)
+    except BaseException:
+        with contextlib.suppress(OSError):
+            os.unlink(tmp)
+        raise
+
+
+def read_json(path: Path, default=None):
+    """Read JSON, returning `default` when the file is missing or unreadable."""
+    try:
+        return json.loads(path.read_text(encoding="utf-8-sig"))
+    except (OSError, ValueError):
+        return default
+
+
 def load_profile() -> dict:
     """Learner preferences + onboarding progress (machine-local, gitignored)."""
-    try:
-        data = json.loads(PROFILE_PATH.read_text(encoding="utf-8"))
-        return data if isinstance(data, dict) else {}
-    except (OSError, ValueError):
-        return {}
+    data = read_json(PROFILE_PATH, {})
+    return data if isinstance(data, dict) else {}
 
 
 def save_profile(changes: dict) -> dict:
     data = {**load_profile(), **changes}
-    PROFILE_PATH.parent.mkdir(parents=True, exist_ok=True)
-    PROFILE_PATH.write_text(json.dumps(data, indent=1, ensure_ascii=False), encoding="utf-8")
+    write_json(PROFILE_PATH, data)
     return data
 
 
@@ -115,7 +137,7 @@ class Note:
     @property
     def mastery(self) -> int:
         try:
-            return int(self.meta.get("mastery") or 0)
+            return max(0, min(5, int(self.meta.get("mastery") or 0)))
         except (TypeError, ValueError):
             return 0
 
@@ -147,12 +169,24 @@ class Note:
         return ""
 
 
+class NoteError(ValueError):
+    pass
+
+
+def read_note_text(path: Path) -> str:
+    """A note's text without a BOM (files saved by Windows PowerShell start with one). Use this for every
+    read-modify-write of a note; writes are plain UTF-8 without a BOM."""
+    return path.read_text(encoding="utf-8-sig")
+
+
 def parse_note(path: Path) -> Note:
-    text = path.read_text(encoding="utf-8-sig")   # tolerate a BOM (e.g. files saved by Windows PowerShell)
+    text = read_note_text(path)
     match = FRONTMATTER.match(text)
     meta, body = {}, text
     if match:
         meta = yaml.safe_load(match.group(1)) or {}
+        if not isinstance(meta, dict):   # e.g. a note that starts with a horizontal rule
+            raise NoteError("frontmatter is not a key: value mapping")
         body = text[match.end():]
     return Note(slug=path.stem, path=path, meta=meta, body=body)
 
@@ -166,14 +200,41 @@ def load_vault(vault: Path) -> tuple[dict[str, Note], list[str]]:
             continue
         try:
             note = parse_note(path)
-        except yaml.YAMLError as exc:
-            errors.append(f"{rel}: invalid frontmatter ({exc.__class__.__name__})")
+        except (yaml.YAMLError, NoteError) as exc:
+            errors.append(f"{rel}: invalid frontmatter ({exc.__class__.__name__}: {str(exc)[:80]})")
             continue
         if note.slug in notes:
             errors.append(f"{rel}: duplicate slug '{note.slug}' (also {notes[note.slug].path.relative_to(vault)})")
             continue
         notes[note.slug] = note
     return notes, errors
+
+
+_VAULT_CACHE: dict = {}
+_VAULT_LOCK = __import__("threading").Lock()
+
+
+def vault_signature(vault: Path) -> tuple:
+    """Cheap fingerprint of the vault (file count + newest mtime + total size): stat only, no parsing."""
+    count, newest, size = 0, 0, 0
+    for path in vault.rglob("*.md"):
+        try:
+            st = path.stat()
+        except OSError:
+            continue
+        count, newest, size = count + 1, max(newest, st.st_mtime_ns), size + st.st_size
+    return count, newest, size
+
+
+def load_vault_cached(vault: Path) -> tuple[dict[str, Note], list[str]]:
+    """load_vault, re-parsed only when a note was added, removed or changed. Returns a fresh dict each time (the
+    Note objects are shared; treat them as read-only)."""
+    sig = vault_signature(vault)
+    with _VAULT_LOCK:
+        hit = _VAULT_CACHE.get(vault)
+        if not hit or hit[0] != sig:
+            hit = _VAULT_CACHE[vault] = (sig, *load_vault(vault))
+        return dict(hit[1]), list(hit[2])
 
 
 def find_cycles(notes: dict[str, Note]) -> list[list[str]]:
@@ -329,7 +390,11 @@ def cmd_build(args) -> int:
     BUILD_DIR.mkdir(exist_ok=True)
     (BUILD_DIR / "graph.json").write_text(json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8")
     out = BUILD_DIR / "graph.html"
-    out.write_text(render_graph_html(data), encoding="utf-8")
+    # the static page loads the vendored libraries from build/vendor/ (relative), like the server's /vendor/
+    (BUILD_DIR / "vendor").mkdir(exist_ok=True)
+    for lib in VENDOR_DIR.glob("*.js"):
+        (BUILD_DIR / "vendor" / lib.name).write_bytes(lib.read_bytes())
+    out.write_text(render_graph_html(data).replace('src="/vendor/', 'src="vendor/'), encoding="utf-8")
     print(f"built {out.relative_to(ROOT)}: {len(data['nodes'])} nodes, {len(data['edges'])} edges")
     if args.open:
         if hasattr(os, "startfile"):
@@ -343,7 +408,8 @@ def cmd_build(args) -> int:
 
 def open_index() -> sqlite3.Connection:
     INDEX_PATH.parent.mkdir(exist_ok=True)
-    db = sqlite3.connect(INDEX_PATH)
+    db = sqlite3.connect(INDEX_PATH, timeout=10)
+    db.execute("PRAGMA busy_timeout = 10000")   # concurrent searches wait instead of failing with 'locked'
     db.executescript("""
         CREATE TABLE IF NOT EXISTS files(path TEXT PRIMARY KEY, sha1 TEXT, slug TEXT, pages INTEGER);
         CREATE VIRTUAL TABLE IF NOT EXISTS chunks USING fts5(
@@ -397,6 +463,19 @@ def book_note_text(slug, title, author, rel_pdf, pages, outline) -> str:
     return "\n".join(lines)
 
 
+def book_slug(db: sqlite3.Connection, rel_pdf: str, stem: str) -> str:
+    """A stable slug per PDF path. 'Book (1).pdf' and 'Book 1.pdf' slugify the same; the second one gets a short
+    hash of its path, so one book's pages are never replaced by (or deleted with) another's."""
+    row = db.execute("SELECT slug FROM files WHERE path=?", (rel_pdf,)).fetchone()
+    if row:
+        return row[0]
+    slug = "book-" + slugify(stem)[:60]
+    taken = db.execute("SELECT path FROM files WHERE slug=? AND path<>?", (slug, rel_pdf)).fetchone()
+    if taken:
+        slug = f"{slug[:59]}-{hashlib.sha1(rel_pdf.encode()).hexdigest()[:6]}"
+    return slug
+
+
 def cmd_ingest(args) -> int:
     try:
         from pypdf import PdfReader
@@ -424,7 +503,7 @@ def cmd_ingest(args) -> int:
         if row and row[0] == digest and not args.force:
             print(f"= {rel_pdf} (unchanged)")
             continue
-        slug = "book-" + slugify(pdf.stem)[:60]
+        slug = book_slug(db, rel_pdf, pdf.stem)
         try:
             reader = PdfReader(str(pdf))
             if reader.is_encrypted:
@@ -477,11 +556,20 @@ def cmd_ingest(args) -> int:
     return 0
 
 
+_NOTE_INDEX_SIG: dict = {}
+
+
 def refresh_note_index(db: sqlite3.Connection, notes: dict[str, Note]) -> None:
+    """Re-index note text, but only when the notes changed since the last refresh in this process."""
+    sig = hashlib.sha1(json.dumps(sorted((s, n.title, len(n.body), hash(n.body)) for s, n in notes.items()))
+                       .encode()).hexdigest()
+    if _NOTE_INDEX_SIG.get(str(INDEX_PATH)) == sig:
+        return
     db.execute("DELETE FROM chunks WHERE kind='note'")
     db.executemany("INSERT INTO chunks(kind, ref, page, title, body) VALUES ('note',?,NULL,?,?)",
                    [(s, n.title, n.body) for s, n in notes.items()])
     db.commit()
+    _NOTE_INDEX_SIG[str(INDEX_PATH)] = sig
 
 
 def fts_query(text: str) -> str:
@@ -493,7 +581,11 @@ def search(notes: dict[str, Note], query: str, kind: str | None = None, ref: str
     """BM25 search over notes and indexed book pages. Raises ValueError on an empty/invalid query."""
     db = open_index()
     try:
-        refresh_note_index(db, notes)
+        if kind != "book":   # book pages are indexed by `kg ingest`; only note searches need fresh note text
+            try:
+                refresh_note_index(db, notes)
+            except sqlite3.OperationalError as exc:
+                raise ValueError(f"search index busy or unreadable: {exc}") from exc
         tokens = fts_query(query)
         match = query if raw else (tokens.replace('" "', '" OR "') if any_term else tokens)
         if not match:
@@ -507,7 +599,9 @@ def search(notes: dict[str, Note], query: str, kind: str | None = None, ref: str
         if ref:
             sql += " AND ref=?"
             params.append(ref)
-        sql += " ORDER BY bm25(chunks, 0, 0, 0, 5.0, 1.0) LIMIT ?"
+        # every page of a book shares the book's title, so weighting the title only helps for notes
+        title_weight = 0.0 if kind == "book" else 5.0
+        sql += f" ORDER BY bm25(chunks, 0, 0, 0, {title_weight}, 1.0) LIMIT ?"
         params.append(limit)
         try:
             rows = db.execute(sql, params).fetchall()
@@ -590,7 +684,7 @@ def due_reviews(notes: dict[str, Note]) -> list[tuple[int, Note]]:
         if n.mastery < 1:
             continue
         last = n.last_reviewed
-        due_on = last + dt.timedelta(days=REVIEW_INTERVAL_DAYS[n.mastery]) if last else today
+        due_on = last + dt.timedelta(days=REVIEW_INTERVAL_DAYS.get(n.mastery, 60)) if last else today
         if due_on <= today:
             due.append(((today - due_on).days, n))
     due.sort(key=lambda x: (-x[0], x[1].mastery))
@@ -610,8 +704,11 @@ def cmd_review(args) -> int:
 def set_frontmatter_field(text: str, key: str, value: str) -> str:
     """Replace (or append) a top-level frontmatter key, including any wrapped/indented or block-list
     continuation lines that belong to its old value."""
+    text = text.lstrip("\ufeff")
     match = FRONTMATTER.match(text)
     if not match:
+        if text.startswith("---"):   # frontmatter we can't parse: never bury it under a new block
+            raise ValueError("the note's frontmatter is malformed; fix it by hand (kg check shows the problem)")
         return f"---\n{key}: {value}\n---\n" + text
     lines = match.group(1).split("\n")
     out, i, done = [], 0, False
@@ -630,10 +727,12 @@ def set_frontmatter_field(text: str, key: str, value: str) -> str:
     return text[: match.start(1)] + "\n".join(out) + text[match.end(1):]
 
 
-def rate_note(note: Note, mastery: int) -> None:
-    text = note.path.read_text(encoding="utf-8")
+def rate_note(note: Note, mastery: int, stamp: bool = True) -> None:
+    """Set mastery; `stamp` also records today as last_reviewed (only when a real review/assessment happened)."""
+    text = read_note_text(note.path)
     text = set_frontmatter_field(text, "mastery", str(mastery))
-    text = set_frontmatter_field(text, "last_reviewed", dt.date.today().isoformat())
+    if stamp:
+        text = set_frontmatter_field(text, "last_reviewed", dt.date.today().isoformat())
     note.path.write_text(text, encoding="utf-8")
 
 
@@ -684,7 +783,8 @@ def cmd_serve(args) -> int:
     except ImportError as exc:
         print(f"missing dependency ({exc.name}): run setup.ps1", file=sys.stderr)
         return 2
-    return server.run(port=args.port, model=args.model, open_browser=args.open, provider=args.provider)
+    return server.run(port=args.port, model=args.model, open_browser=args.open, provider=args.provider,
+                      idle_exit=args.idle_exit)
 
 
 # --------------------------------------------------------------------------- cli
@@ -752,6 +852,8 @@ def main(argv: list[str] | None = None) -> int:
                    help="AI backend (default: tutor.provider in kg.config.yaml)")
     p.add_argument("--model", help="model id for the chosen provider (default: tutor.model in kg.config.yaml)")
     p.add_argument("--open", action="store_true", help="open the browser")
+    p.add_argument("--idle-exit", type=float, metavar="MIN",
+                   help="stop after MIN minutes without requests (default: tutor.idle_exit_minutes, 0 = never)")
     p.set_defaults(func=cmd_serve)
 
     args = parser.parse_args(argv)

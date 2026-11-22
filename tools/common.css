@@ -74,7 +74,7 @@ pre code { display: block; padding: .6rem; overflow: auto; }
 /* app navigation */
 .appnav { display:flex; gap:.375rem; align-items:center; flex-wrap:wrap; }
 .appnav a { display:inline-flex; align-items:center; min-height:2rem; padding:0 .75rem; border:1px solid transparent;
-            border-radius:999px; color:var(--muted); text-decoration:none; font:.75rem var(--font-mono); letter-spacing:.06em; text-transform:uppercase; }
+            border-radius:999px; color:var(--muted); text-decoration:none; font:.8125rem var(--font-mono); letter-spacing:.04em; text-transform:uppercase; }
 .appnav a:hover { color:var(--fg); border-color:var(--border); }
 .appnav a[aria-current="page"] { background:var(--panel2); border-color:var(--border); color:var(--fg); font-weight:600; }
 
@@ -94,7 +94,9 @@ pre code { display: block; padding: .6rem; overflow: auto; }
 kbd { font: .75rem ui-monospace, monospace; border:1px solid var(--border); border-bottom-width:2px; border-radius:4px; padding:0 .3rem; background:var(--panel2); }
 
 /* toast + dialog */
-.toast { position:fixed; bottom:1rem; right:1rem; z-index:50; max-width:26rem; background:var(--panel); border:1px solid var(--border);
+#kg-toasts { position:fixed; bottom:1rem; right:1rem; z-index:50; display:flex; flex-direction:column-reverse; gap:.5rem;
+             max-width:min(26rem, calc(100vw - 2rem)); pointer-events:none; }
+.toast { pointer-events:auto; background:var(--panel); border:1px solid var(--border);
          border-radius:10px; padding:.7rem 1rem; box-shadow:var(--shadow); display:flex; gap:.75rem; align-items:flex-start; }
 .toast.err { border-color: var(--bad); }
 dialog { background:var(--panel); color:var(--fg); border:1px solid var(--border); border-radius:12px; box-shadow:var(--shadow); max-width:32rem; }

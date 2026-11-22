@@ -3,8 +3,15 @@ from __future__ import annotations
 
 import asyncio
 import datetime as dt
+import hashlib
+import hmac
 import json
+import os
+import secrets
+import signal
 import sys
+import time
+import urllib.parse
 import webbrowser
 
 from aiohttp import web
@@ -23,28 +30,75 @@ TODAY_TEMPLATE = kg.ROOT / "tools" / "today_template.html"
 ARENA_TEMPLATE = kg.ROOT / "tools" / "arena_template.html"
 JOBS_TEMPLATE = kg.ROOT / "tools" / "jobs_template.html"
 SHELL_TEMPLATE = kg.ROOT / "tools" / "shell_template.html"
+VENDOR_DIR = kg.ROOT / "tools" / "vendor"
+TOKEN_FILE = kg.ROOT / ".kg" / "server.token"
+# identifies this checkout, so a launcher never mistakes another program (or another clone's server) for this one
+ROOT_ID = hashlib.sha1(str(kg.ROOT).encode()).hexdigest()[:12]
+
+# Templates use inline scripts/styles, so those need 'unsafe-inline'; everything else is locked to this origin.
+# img-src/connect-src stop model or posting text from leaking data through image URLs; frame-ancestors stops
+# other sites from framing the app (clickjacking).
+CSP = ("default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; "
+       "img-src 'self' data: https://avatars.githubusercontent.com; font-src 'self' data:; connect-src 'self'; "
+       "frame-src 'self'; frame-ancestors 'self'; base-uri 'none'; object-src 'none'; form-action 'self'; "
+       "media-src 'self'; worker-src 'self' blob:")
+FORBIDDEN_PAGE = ("<!doctype html><meta charset=utf-8><title>Knowledge Graph</title><body style='font:16px system-ui;"
+                  "max-width:40rem;margin:4rem auto;line-height:1.5'><h1>Open the app from its own link</h1><p>This "
+                  "server only answers the window it opened. Start it with <code>kg serve --open</code> or the Knowledge "
+                  "Graph shortcut, or use the link that <code>kg serve</code> printed (it contains a one-time key).</p>")
 
 
 def notes():
     vault, _ = kg.load_config()
-    return kg.load_vault(vault)[0]
+    return kg.load_vault_cached(vault)[0]
+
+
+def _authed(request: web.Request) -> bool:
+    token = request.app["token"]
+    return bool(token) and hmac.compare_digest(request.cookies.get(request.app["cookie"], ""), token)
+
+
+def _forbidden(request: web.Request) -> web.Response:
+    if request.path.startswith("/api/") or request.method != "GET":
+        return web.json_response({"error": "forbidden"}, status=403)
+    return web.Response(text=FORBIDDEN_PAGE, content_type="text/html", status=403)
 
 
 @web.middleware
 async def guard(request: web.Request, handler):
-    # Block cross-site requests: POSTs must carry our custom header (forces a CORS preflight we never answer)
-    # and, when the browser sends an Origin, it must be this server.
+    app = request.app
+    # DNS rebinding: a hostile site's name resolving to 127.0.0.1 still sends its own Host header.
+    if request.host not in app["hosts"]:
+        return web.json_response({"error": "forbidden host"}, status=403)
     if request.method == "POST":
+        # cross-site POSTs: our custom header forces a CORS preflight we never answer, and Origin must be us
         origin = request.headers.get("Origin")
-        if request.headers.get("X-KG") != "1" or (origin and origin != f"http://{request.host}"):
+        if request.headers.get("X-KG") != "1" or (origin and origin not in app["origins"]):
             return web.json_response({"error": "forbidden"}, status=403)
+    # Per-launch key: the window the server opened gets it once in the URL and keeps it as a SameSite=Strict,
+    # HttpOnly cookie. Links from other sites arrive without that cookie, other local users don't have the key.
+    request["authed"] = _authed(request)
+    if not request["authed"]:
+        given = request.query.get("kgtoken", "")
+        if app["token"] and given and hmac.compare_digest(given, app["token"]):
+            query = [(k, v) for k, v in request.query.items() if k != "kgtoken"]
+            target = request.path + ("?" + urllib.parse.urlencode(query) if query else "")
+            resp = web.HTTPFound(target if target.startswith("/") and not target.startswith("//") else "/")
+            resp.set_cookie(app["cookie"], app["token"], httponly=True, samesite="Strict", path="/")
+            raise resp
+        if request.path != "/api/health" and app["token"]:
+            return _forbidden(request)
+    app["activity"]["last"] = time.monotonic()
     try:
-        return await handler(request)
+        resp = await handler(request)
+        _harden(resp)
+        return resp
     except TutorError as exc:
         return web.json_response({"error": str(exc)}, status=exc.status)
     except asyncio.TimeoutError:
         return web.json_response({"error": "the model took too long; try again"}, status=504)
-    except web.HTTPException:
+    except web.HTTPException as exc:
+        _harden(exc)
         raise
     except Exception as exc:  # surface model/SDK errors to the UI instead of a bare 500
         msg = f"{type(exc).__name__}: {exc}"
@@ -52,6 +106,15 @@ async def guard(request: web.Request, handler):
             msg = ("Not signed in to GitHub Copilot. In a terminal run `gh auth login` (use your GitHub account that "
                    "has Copilot), then restart `.\\kg.cmd serve`.")
         return web.json_response({"error": msg}, status=500)
+
+
+def _harden(resp) -> None:
+    resp.headers.setdefault("Content-Security-Policy", CSP)
+    resp.headers.setdefault("X-Content-Type-Options", "nosniff")
+    resp.headers.setdefault("Referrer-Policy", "no-referrer")
+    resp.headers.setdefault("X-Frame-Options", "SAMEORIGIN")
+    resp.headers.setdefault("Cross-Origin-Opener-Policy", "same-origin")
+    resp.headers.setdefault("Cross-Origin-Resource-Policy", "same-origin")
 
 
 async def body(request: web.Request) -> dict:
@@ -78,23 +141,43 @@ async def today_page(request: web.Request) -> web.Response:
 
 
 async def graph_page(request: web.Request) -> web.Response:
-    return web.Response(text=kg.render_graph_html(kg.graph_data(notes())), content_type="text/html")
+    html = await asyncio.to_thread(lambda: kg.render_graph_html(kg.graph_data(notes())))
+    return web.Response(text=html, content_type="text/html")
+
+
+async def vendor(request: web.Request) -> web.StreamResponse:
+    name = request.match_info["name"]
+    path = VENDOR_DIR / name
+    if "/" in name or "\\" in name or not name.endswith(".js") or not path.is_file():
+        raise web.HTTPNotFound()
+    resp = web.FileResponse(path, headers={"Cache-Control": "public, max-age=86400",
+                                           "Content-Type": "text/javascript; charset=utf-8"})
+    return resp
 
 
 async def health(request: web.Request) -> web.Response:
-    n = notes()
-    return web.json_response({"ok": True, "model": tutor(request).model, "provider": tutor(request).provider.label,
+    # without the key: just enough for the launcher to recognise this server, nothing about the learner
+    if not request.get("authed"):
+        return web.json_response({"ok": True, "root": ROOT_ID})
+    n = await asyncio.to_thread(notes)
+    return web.json_response({"ok": True, "root": ROOT_ID, "model": tutor(request).model,
+                              "provider": tutor(request).provider.label,
                               "books": sum(1 for x in n.values() if x.type == "book"),
                               "questions": tutor(request).default_questions,
                               "speech_lang": request.app["speech_lang"]})
 
 
 async def graph(request: web.Request) -> web.Response:
-    return web.json_response(kg.graph_data(notes()))
+    return web.json_response(await asyncio.to_thread(lambda: kg.graph_data(notes())))
 
 
 async def today(request: web.Request) -> web.Response:
     """Next-best-actions for the home view: reviews due, concepts ready, work in progress, recent activity."""
+    await builder(request).account.ensure()
+    return web.json_response(await asyncio.to_thread(_today, builder(request)))
+
+
+def _today(b: Builder) -> dict:
     n = notes()
     title = lambda s: n[s].title if s in n else s
     due = [{"slug": x.slug, "title": x.title, "domain": x.domain, "mastery": x.mastery, "overdue": d}
@@ -105,8 +188,7 @@ async def today(request: web.Request) -> web.Response:
     ready = [{"slug": x.slug, "title": x.title, "domain": x.domain, "mastery": x.mastery, "summary": x.summary,
               "prereqs": [title(p) for p in x.refs("prereqs")]} for x in ready_all[:6]]
     work = []
-    await builder(request).account.ensure()
-    summary = builder(request).summary()
+    summary = b.summary()
     for item in summary["projects"] + summary["contributions"]:
         state = item.get("status") or item.get("state")
         if state not in ("active", "planned"):
@@ -147,9 +229,9 @@ async def today(request: web.Request) -> web.Response:
                  "role": any(x.type == "role" for x in n.values()),
                  "challenge": "challenge" in steps or any(v["attempted"] for v in rt.values())},
     }
-    return web.json_response({"due": due, "ready": ready, "work": work[:6], "domains": domains, "activity": activity,
-                              "challenges": challenges, "onboarding": onboarding,
-                              "latest_plan": plans[0].relative_to(kg.ROOT).as_posix() if plans else None})
+    return {"due": due, "ready": ready, "work": work[:6], "domains": domains, "activity": activity,
+            "challenges": challenges, "onboarding": onboarding,
+            "latest_plan": plans[0].relative_to(kg.ROOT).as_posix() if plans else None}
 
 
 async def profile_get(request: web.Request) -> web.Response:
@@ -247,7 +329,7 @@ async def build_page(request: web.Request) -> web.Response:
 
 async def build_summary(request: web.Request) -> web.Response:
     await builder(request).account.ensure()
-    return web.json_response(builder(request).summary())
+    return web.json_response(await asyncio.to_thread(builder(request).summary))
 
 
 async def github_account(request: web.Request) -> web.Response:
@@ -351,7 +433,7 @@ async def arena_hint(request: web.Request) -> web.Response:
 
 
 async def arena_giveup(request: web.Request) -> web.Response:
-    return web.json_response(arena(request).give_up(request.match_info["slug"]))
+    return web.json_response(await arena(request).give_up(request.match_info["slug"]))
 
 
 async def arena_review(request: web.Request) -> web.Response:
@@ -385,7 +467,7 @@ async def jobs_analyze(request: web.Request) -> web.Response:
 
 async def jobs_board(request: web.Request) -> web.Response:
     d = await body(request)
-    return web.json_response({"jobs": await jobs(request).board(str(d.get("query") or "")[:80], bool(d.get("remote")))})
+    return web.json_response(await jobs(request).board(str(d.get("query") or "")[:80], bool(d.get("remote"))))
 
 
 async def jobs_board_analyze(request: web.Request) -> web.Response:
@@ -398,7 +480,12 @@ async def jobs_detail(request: web.Request) -> web.Response:
 
 
 async def jobs_add_skills(request: web.Request) -> web.Response:
-    return web.json_response(await asyncio.to_thread(jobs(request).add_skills, request.match_info["slug"]))
+    d = await body(request)
+    names = d.get("names")
+    if names is not None and not isinstance(names, list):
+        raise TutorError("names must be a list")
+    return web.json_response(await asyncio.to_thread(jobs(request).add_skills, request.match_info["slug"],
+                                                     [str(x) for x in names] if names is not None else None))
 
 
 async def jobs_status(request: web.Request) -> web.Response:
@@ -406,9 +493,15 @@ async def jobs_status(request: web.Request) -> web.Response:
     return web.json_response(jobs(request).set_status(request.match_info["slug"], str(d.get("status") or "")))
 
 
-def make_app(provider, questions: int, speech_lang: str = "en-US") -> web.Application:
+def make_app(provider, questions: int, speech_lang: str = "en-US", port: int = DEFAULT_PORT,
+             token: str | None = None, verify_answers: bool = False) -> web.Application:
     app = web.Application(middlewares=[guard], client_max_size=1 << 20)
-    app["tutor"] = Tutor(provider, questions=questions)
+    app["hosts"] = {f"127.0.0.1:{port}", f"localhost:{port}", f"[::1]:{port}"}
+    app["origins"] = {f"http://{h}" for h in app["hosts"]}
+    app["token"] = token if token is not None else secrets.token_urlsafe(32)
+    app["cookie"] = f"kg{port}"   # cookies ignore ports: two servers on different ports must not share one
+    app["activity"] = {"last": time.monotonic()}   # mutable: updated per request
+    app["tutor"] = Tutor(provider, questions=questions, verify_answers=verify_answers)
     app["builder"] = Builder(app["tutor"], kg.load_settings().get("github") or {})
     app["arena"] = Arena(app["tutor"])
     app["jobs"] = Jobs(app["tutor"], (kg.load_settings().get("github") or {}))
@@ -426,6 +519,7 @@ def make_app(provider, questions: int, speech_lang: str = "en-US") -> web.Applic
     app.on_cleanup.append(on_cleanup)
     app.add_routes([
         web.get("/", index),
+        web.get("/vendor/{name}", vendor),
         web.get("/today", today_page),
         web.get("/api/profile", profile_get),
         web.post("/api/profile", profile_set),
@@ -478,8 +572,27 @@ def make_app(provider, questions: int, speech_lang: str = "en-US") -> web.Applic
     return app
 
 
+def _write_token(token: str, port: int) -> None:
+    """Hand the per-launch key to the launcher (same user only: mode 600) and remember which server owns it."""
+    TOKEN_FILE.parent.mkdir(parents=True, exist_ok=True)
+    fd = os.open(TOKEN_FILE, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as fh:
+        json.dump({"token": token, "port": port, "pid": os.getpid()}, fh)
+
+
+async def _idle_watch(app: web.Application, minutes: float) -> None:
+    """Stop a background server nobody has used for a while (the launcher starts it again on demand)."""
+    while True:
+        await asyncio.sleep(60)
+        busy = any(a.lock.locked() for a in app["tutor"].assessments.values())
+        if not busy and time.monotonic() - app["activity"]["last"] > minutes * 60:
+            print(f"idle for {minutes:g} min; stopping", flush=True)
+            signal.raise_signal(signal.SIGINT)   # run_app turns this into a clean shutdown
+            return
+
+
 def run(port: int | None = None, model: str | None = None, open_browser: bool = False,
-        provider: str | None = None) -> int:
+        provider: str | None = None, idle_exit: float | None = None) -> int:
     cfg = (kg.load_settings().get("tutor") or {})
     port = port or int(cfg.get("port", DEFAULT_PORT))
     try:
@@ -488,10 +601,32 @@ def run(port: int | None = None, model: str | None = None, open_browser: bool = 
         print(f"kg serve: {exc}", file=sys.stderr)
         return 2
     questions = int(cfg.get("questions", 6))
+    token = os.environ.pop("KG_TOKEN", "") or secrets.token_urlsafe(32)
     url = f"http://127.0.0.1:{port}/"
-    print(f"Knowledge graph + tutor on {url}  ·  build {url}build  ·  challenges {url}arena  ·  jobs {url}jobs  "
-          f"({backend.label}, model: {backend.model}; Ctrl+C to stop)")
+    app = make_app(backend, questions, cfg.get("speech_lang", "en-US"), port=port, token=token,
+                   verify_answers=bool(cfg.get("verify_answers")))
+    idle = idle_exit if idle_exit is not None else float(cfg.get("idle_exit_minutes") or 0)
+
+    async def on_startup(app):
+        _write_token(token, port)
+        if idle > 0:
+            app["idle_task"] = asyncio.create_task(_idle_watch(app, idle))
+
+    async def on_cleanup(app):
+        task = app.get("idle_task")
+        if task:
+            task.cancel()
+        try:
+            if json.loads(TOKEN_FILE.read_text(encoding="utf-8")).get("pid") == os.getpid():
+                TOKEN_FILE.unlink()
+        except (OSError, ValueError):
+            pass
+
+    app.on_startup.append(on_startup)
+    app.on_cleanup.append(on_cleanup)
+    print(f"Knowledge graph + tutor on {url}  ({backend.label}, model: {backend.model}; Ctrl+C to stop)")
+    print(f"Open the app with this link (it carries this launch's key): {url}?kgtoken={token}", flush=True)
     if open_browser:
-        webbrowser.open(url)
-    web.run_app(make_app(backend, questions, cfg.get("speech_lang", "en-US")), host="127.0.0.1", port=port, print=None)
+        webbrowser.open(f"{url}?kgtoken={token}")
+    web.run_app(app, host="127.0.0.1", port=port, print=None)
     return 0

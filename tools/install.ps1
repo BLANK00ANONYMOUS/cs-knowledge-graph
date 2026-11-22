@@ -1,6 +1,8 @@
 # Installs Start Menu + Desktop shortcuts so the app opens like any other application.
 #   .\tools\install.ps1                 shortcuts only
-#   .\tools\install.ps1 -AutoStart      also start the server (hidden) when you sign in to Windows
+#   .\tools\install.ps1 -AutoStart      also start the server (hidden) when you sign in to Windows. It then runs
+#                                       all day: only the app window (which gets the launch key) can use it, but
+#                                       leave this off on a shared machine.
 #   .\tools\install.ps1 -Uninstall      remove everything this script created
 param([switch]$AutoStart, [switch]$Uninstall)
 $ErrorActionPreference = "Stop"
