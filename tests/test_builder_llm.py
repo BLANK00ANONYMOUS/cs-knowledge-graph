@@ -39,7 +39,8 @@ def test_concurrent_ensure_sees_the_saved_account(state, monkeypatch):  # B7
 def test_token_file_is_private_or_in_keyring(state, monkeypatch):  # S9
     acc = B.Account(B.GitHub(), None)
     acc._write({"login": "bob", "token": "tok"})
-    assert stat.S_IMODE(os.stat(B.ACCOUNT_FILE).st_mode) == 0o600
+    if os.name != "nt":   # Windows has no Unix mode bits; there the profile folder's ACL protects the file
+        assert stat.S_IMODE(os.stat(B.ACCOUNT_FILE).st_mode) == 0o600
     assert acc._read()["token"] == "tok"
 
     store = {}
@@ -92,9 +93,9 @@ def test_sync_survives_a_failed_tagging_batch_and_keeps_similar_repos_apart(stat
 
 
 def test_claude_code_strips_api_keys_and_passes_prompt_by_file(tmp_path, monkeypatch):  # S12, B8
-    fake = tmp_path / "claude"
+    script = tmp_path / "fake_claude.py"
     log = tmp_path / "log.json"
-    fake.write_text(f"""#!{sys.executable}
+    script.write_text(f"""#!{sys.executable}
 import json, os, sys
 args = sys.argv[1:]
 spf = args[args.index("--system-prompt-file") + 1]
@@ -102,7 +103,12 @@ json.dump({{"env": [k for k in os.environ if k.startswith("ANTHROPIC")], "system
            "stdin": sys.stdin.read(), "args": args}}, open({str(log)!r}, "w"))
 print(json.dumps({{"result": "hi", "session_id": "s1"}}))
 """)
-    fake.chmod(0o755)
+    if os.name == "nt":   # Windows can't run a #! script: give it a .cmd launcher, like npm's claude.cmd shim
+        fake = tmp_path / "claude.cmd"
+        fake.write_text(f'@"{sys.executable}" "{script}" %*\r\n')
+    else:
+        fake = script
+        fake.chmod(0o755)
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-should-not-leak")
     monkeypatch.setenv("ANTHROPIC_AUTH_TOKEN", "x")
     monkeypatch.setattr(llm.kg, "ROOT", tmp_path)

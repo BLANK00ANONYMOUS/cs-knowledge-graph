@@ -44,12 +44,13 @@ def test_non_mapping_frontmatter_is_a_validation_error(vault):  # B5
     assert "hr" not in notes and any("hr.md" in e for e in errors)
 
 
-def test_books_dir_is_relative_to_repo(monkeypatch):  # B4
+def test_books_dir_is_relative_to_repo(monkeypatch, tmp_path):  # B4
     monkeypatch.setattr(kg, "load_settings", lambda: {"books_dir": "books"})
     monkeypatch.delenv("KG_BOOKS_DIR", raising=False)
     assert kg.load_config()[1] == kg.ROOT / "books"
-    monkeypatch.setattr(kg, "load_settings", lambda: {"books_dir": "/abs/books"})
-    assert str(kg.load_config()[1]) == "/abs/books"
+    absolute = tmp_path / "books"   # absolute on every OS ("/abs" isn't absolute on Windows: no drive)
+    monkeypatch.setattr(kg, "load_settings", lambda: {"books_dir": str(absolute)})
+    assert kg.load_config()[1] == absolute
 
 
 def test_write_json_is_atomic_and_read_json_tolerant(tmp_path):  # B5
