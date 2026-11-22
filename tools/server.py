@@ -610,8 +610,9 @@ def _port_problem(port: int) -> str:
     except Exception:
         ours = False
     if ours:
-        return (f"the app is already running on port {port}. Open it with:  python tools/launcher.py\n"
-                f"or stop it first with:  python tools/launcher.py --stop   (or Ctrl+C in its terminal)")
+        kg_cmd = ".\\kg.cmd" if os.name == "nt" else "./kg"
+        return (f"the app is already running on port {port}. Open a window on it with:  {kg_cmd} serve --open\n"
+                f"To stop it: Ctrl+C in its terminal (or, if the shortcut started it: tools/launcher.py --stop)")
     return f"port {port} is used by another program; pick another with --port or tutor.port in kg.config.yaml"
 
 
@@ -625,6 +626,13 @@ def run(port: int | None = None, model: str | None = None, open_browser: bool = 
         print(f"kg serve: {exc}", file=sys.stderr)
         return 2
     problem = _port_problem(port)
+    if problem and open_browser and "already running" in problem:
+        # the app is up: open a window on it with its key (read from the owner-only key file, never printed)
+        key = (kg.read_json(TOKEN_FILE, {}) or {}).get("token") if TOKEN_FILE.exists() else None
+        if key:
+            webbrowser.open(f"http://127.0.0.1:{port}/?kgtoken={key}")
+            print(f"The app is already running on port {port}; opened a window on it.")
+            return 0
     if problem:
         print(f"kg serve: {problem}", file=sys.stderr)
         return 1

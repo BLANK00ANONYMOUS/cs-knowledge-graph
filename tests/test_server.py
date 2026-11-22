@@ -154,3 +154,16 @@ def test_recently_closed_connections_dont_make_the_port_busy():
         socket.create_connection(("127.0.0.1", port)).close()
         t.join()
     assert server._port_problem(port) == ""   # only TIME_WAIT left: the server can bind
+
+
+def test_serve_open_on_a_running_app_opens_a_window(tmp_path, monkeypatch):
+    monkeypatch.setattr(server, "TOKEN_FILE", tmp_path / "server.token")
+    server.TOKEN_FILE.write_text('{"token": "running-key"}')
+    monkeypatch.setattr(server, "_port_problem", lambda p: f"the app is already running on port {p}.")
+    monkeypatch.setattr(server, "make_provider", lambda *a, **k: FakeProvider("m"))
+    monkeypatch.setattr(server.kg, "load_settings", lambda: {"tutor": {}})
+    opened = []
+    monkeypatch.setattr(server.webbrowser, "open", opened.append)
+    assert server.run(port=8765, open_browser=True) == 0
+    assert opened == ["http://127.0.0.1:8765/?kgtoken=running-key"]
+    assert server.run(port=8765) == 1   # without --open it still refuses
