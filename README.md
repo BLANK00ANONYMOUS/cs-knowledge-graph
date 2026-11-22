@@ -67,6 +67,10 @@ quiz, finished a lesson and added your first topic.
 
 ### AI providers
 
+Everyone brings their own AI access: a Claude subscription, GitHub Copilot, an API key, or a **free local model**
+(Ollama / LM Studio). No key is ever stored in the repo. **Step-by-step setup for each option, what works without AI,
+and troubleshooting: [docs/ai-setup.md](docs/ai-setup.md).**
+
 Pick the backend with `tutor.provider` in `kg.config.yaml`, or per run with `kg serve --provider <name> [--model <id>]`.
 
 | Provider | What it uses | Setup |
@@ -74,7 +78,7 @@ Pick the backend with `tutor.provider` in `kg.config.yaml`, or per run with `kg 
 | `claude-code` (**default**) | Your Claude subscription through the Claude Code CLI (found automatically in the Claude desktop app, or on `PATH`) | `claude auth login` once, no API key |
 | `copilot` | GitHub Copilot through the Copilot SDK; falls back to another model if the configured one is unavailable | `gh auth login` with a Copilot plan |
 | `anthropic` | The Claude API | `ANTHROPIC_API_KEY` |
-| `openai` | Any OpenAI-compatible API: OpenAI, Gemini, Ollama, LM Studio | `OPENAI_API_KEY` and `base_url` (no key for local servers) |
+| `openai` | Any OpenAI-compatible API: OpenAI, Gemini, or a free local model in Ollama / LM Studio | `OPENAI_API_KEY`, or just `base_url` for a local server (no key) |
 
 **Book citations need tools.** `copilot`, `anthropic` and `openai` let the tutor call `search_books`, so lessons, quizzes
 and plans cite and verify pages from your PDFs. `claude-code` runs without tools: it teaches from general knowledge and leaves
