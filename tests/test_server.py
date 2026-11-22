@@ -138,3 +138,19 @@ def test_second_server_refuses_a_busy_port_and_keeps_the_key_file(tmp_path, monk
         s.bind(("127.0.0.1", 0))
         free = s.getsockname()[1]
     assert server._port_problem(free) == ""
+
+
+def test_recently_closed_connections_dont_make_the_port_busy():
+    import socket
+    import threading
+    with socket.socket() as srv:
+        if server.os.name != "nt":
+            srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        srv.bind(("127.0.0.1", 0))
+        port = srv.getsockname()[1]
+        srv.listen()
+        t = threading.Thread(target=lambda: srv.accept()[0].close())
+        t.start()
+        socket.create_connection(("127.0.0.1", port)).close()
+        t.join()
+    assert server._port_problem(port) == ""   # only TIME_WAIT left: the server can bind

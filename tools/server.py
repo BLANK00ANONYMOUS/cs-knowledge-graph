@@ -597,6 +597,8 @@ def _port_problem(port: int) -> str:
     """Why the port can't be used, or ''. Checked before the app starts: a second server must never overwrite
     the running one's key file (or open a browser on a key that won't work)."""
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        if os.name != "nt":   # like aiohttp: closed connections in TIME_WAIT mustn't count as "in use"; a live
+            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)   # listener still makes bind fail
         try:
             s.bind(("127.0.0.1", port))
             return ""
