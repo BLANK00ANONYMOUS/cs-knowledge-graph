@@ -119,3 +119,22 @@ def test_shell_only_opens_same_origin_section_paths():  # S1
     assert "if (u.origin !== location.origin) return;" in html
     assert "if (!tab) return;" in html
     assert "location.href = u.href" not in html
+
+
+def test_second_server_refuses_a_busy_port_and_keeps_the_key_file(tmp_path, monkeypatch):
+    import socket
+    monkeypatch.setattr(server, "TOKEN_FILE", tmp_path / "server.token")
+    server.TOKEN_FILE.write_text('{"token": "running-server-key"}')
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        s.listen()
+        port = s.getsockname()[1]
+        assert "port" in server._port_problem(port)
+        monkeypatch.setattr(server, "make_provider", lambda *a, **k: FakeProvider("m"))
+        monkeypatch.setattr(server.kg, "load_settings", lambda: {"tutor": {}})
+        assert server.run(port=port) == 1
+    assert server.TOKEN_FILE.read_text() == '{"token": "running-server-key"}'
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        free = s.getsockname()[1]
+    assert server._port_problem(free) == ""

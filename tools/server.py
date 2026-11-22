@@ -9,9 +9,11 @@ import json
 import os
 import secrets
 import signal
+import socket
 import sys
 import time
 import urllib.parse
+import urllib.request
 import webbrowser
 
 from aiohttp import web
@@ -591,6 +593,26 @@ async def _idle_watch(app: web.Application, minutes: float) -> None:
             return
 
 
+def _port_problem(port: int) -> str:
+    """Why the port can't be used, or ''. Checked before the app starts: a second server must never overwrite
+    the running one's key file (or open a browser on a key that won't work)."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        try:
+            s.bind(("127.0.0.1", port))
+            return ""
+        except OSError:
+            pass
+    try:
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/health", timeout=2) as r:
+            ours = json.load(r).get("root") == ROOT_ID
+    except Exception:
+        ours = False
+    if ours:
+        return (f"the app is already running on port {port}. Open it with:  python tools/launcher.py\n"
+                f"or stop it first with:  python tools/launcher.py --stop   (or Ctrl+C in its terminal)")
+    return f"port {port} is used by another program; pick another with --port or tutor.port in kg.config.yaml"
+
+
 def run(port: int | None = None, model: str | None = None, open_browser: bool = False,
         provider: str | None = None, idle_exit: float | None = None) -> int:
     cfg = (kg.load_settings().get("tutor") or {})
@@ -600,6 +622,10 @@ def run(port: int | None = None, model: str | None = None, open_browser: bool = 
     except TutorError as exc:
         print(f"kg serve: {exc}", file=sys.stderr)
         return 2
+    problem = _port_problem(port)
+    if problem:
+        print(f"kg serve: {problem}", file=sys.stderr)
+        return 1
     questions = int(cfg.get("questions", 6))
     token = os.environ.pop("KG_TOKEN", "") or secrets.token_urlsafe(32)
     url = f"http://127.0.0.1:{port}/"
