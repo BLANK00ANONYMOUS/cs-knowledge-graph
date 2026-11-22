@@ -625,7 +625,10 @@ def run(port: int | None = None, model: str | None = None, open_browser: bool = 
     app.on_startup.append(on_startup)
     app.on_cleanup.append(on_cleanup)
     print(f"Knowledge graph + tutor on {url}  ({backend.label}, model: {backend.model}; Ctrl+C to stop)")
-    print(f"Open the app with this link (it carries this launch's key): {url}?kgtoken={token}", flush=True)
+    if sys.stdout.isatty():   # never write the key into a log file (other users may read it); the launcher
+        print(f"Open the app with this link (it carries this launch's key): {url}?kgtoken={token}", flush=True)
+    else:                     # reads it from the owner-only key file instead
+        print(f"Launch key: {TOKEN_FILE} (owner-only); open the app with the shortcut or kg serve --open", flush=True)
     if open_browser:
         webbrowser.open(f"{url}?kgtoken={token}")
     web.run_app(app, host="127.0.0.1", port=port, print=None)
